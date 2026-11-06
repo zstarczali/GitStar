@@ -3,6 +3,7 @@ mod commands;
 mod git;
 mod graph;
 mod settings;
+mod claude_cli;
 mod update;
 
 use commands::AppState;

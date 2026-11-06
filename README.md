@@ -60,9 +60,10 @@ The [installation guide](readme.txt) covers every target. It is uploaded as the 
 
 ## AI setup
 
-In **Settings → AI → AI provider**, choose **Anthropic Claude** or **DeepSeek**.
+In **Settings → AI → AI provider**, choose **Anthropic Claude (API key)**, **Claude Code CLI (your own login)** or **DeepSeek**.
 
 - **Claude** — Enter an Anthropic API key from console.anthropic.com. The default model is `claude-opus-5-5`. Choose `claude-haiku-5-5` for faster, lower-cost commit messages.
+- **Claude Code CLI** — No API key in GitStar: it runs the installed `claude` command with your own Claude login (Pro/Max subscription or the key set up in the CLI). Install Claude Code and run `claude` once in a terminal to sign in. GitStar finds the CLI in PATH, `~/.local/bin`, Homebrew or npm; you can also set its path. The model list is the same as for Anthropic Claude. Tools, MCP servers and session history are switched off for these calls.
 - **DeepSeek** — Enter a DeepSeek API key from platform.deepseek.com. The default model is `deepseek-flash`. Choose `deepseek-v4-pro` or enter another model ID under **Other…**.
 
 GitStar stores the API key unencrypted in `settings.json` in the app configuration folder. On Windows, this is `%APPDATA%\hu.gitstar.app\settings.json`.
