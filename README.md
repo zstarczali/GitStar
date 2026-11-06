@@ -31,10 +31,10 @@ npm install
 npm run dev
 ```
 
-Telepítő készítése helyben (Windows-on NSIS + MSI a `src-tauri/target/release/bundle` alá):
+NSIS telepítő készítése helyben Windowson (a `src-tauri/target/release/bundle` alá):
 
 ```bash
-npm run build
+npm run build -- --bundles nsis
 ```
 
 ### Telepítők GitHub Actions-szel
@@ -48,16 +48,16 @@ gh workflow run build.yml --ref main
 
 | Platform | Telepítő |
 |---|---|
-| Windows x64 | NSIS `.exe`, `.msi` |
-| Windows ARM64 | NSIS `.exe` (x64 gépen keresztfordítva; MSI ARM64-re nem készül) |
+| Windows x64 | NSIS `.exe` |
+| Windows ARM64 | NSIS `.exe` (x64 gépen keresztfordítva) |
 | macOS Apple Silicon (ARM64) | `.dmg` |
 | macOS Intel (x64) | `.dmg` |
 | Linux x64 | `.deb`, `.rpm`, `.AppImage` |
 
 A telepítők a futás *Artifacts* részéből tölthetők le. Ha indításkor bepipálod a *release* opciót,
 egy `v<verzió>` draft GitHub release is készül (vagy frissül) a telepítőkkel.
-A telepítők nincsenek aláírva: Windows-on SmartScreen, macOS-en Gatekeeper figyelmeztet
-(macOS-en: jobb klikk → Megnyitás). A git-et a gépre külön kell telepíteni.
+A [részletes telepítési útmutató](readme.txt) minden platformot lefed. A futásnál
+`GitStar-installation-guide` néven, a draft release-ben `readme.txt` néven érhető el.
 
 ## AI beállítás
 
