@@ -4,6 +4,7 @@
 //! the settings), so the behaviour is identical to the command line: hooks,
 //! credential helpers, config, LFS filters all work as usual.
 
+use crate::settings::tr;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -65,7 +66,7 @@ impl Git {
         }
         let mut child = cmd
             .spawn()
-            .map_err(|e| format!("Nem sikerült elindítani a git-et ({}): {}", self.exe, e))?;
+            .map_err(|e| format!("{} ({}): {}", tr("Nem sikerült elindítani a git-et", "Could not start git"), self.exe, e))?;
         if let Some(data) = stdin {
             if let Some(mut si) = child.stdin.take() {
                 si.write_all(data).map_err(|e| e.to_string())?;
@@ -132,7 +133,7 @@ fn error_text(out: &Output, args: &[&str]) -> String {
     if msg.is_empty() {
         let o = out.text();
         if o.trim().is_empty() {
-            format!("git {} (kilépési kód: {})", args.join(" "), out.code)
+            format!("git {} ({}: {})", args.join(" "), tr("kilépési kód", "exit code"), out.code)
         } else {
             o.trim().to_string()
         }

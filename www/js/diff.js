@@ -2,6 +2,7 @@
 // hunk + line staging, minimap, image diff, conflict view, blame.
 
 import { h, icon, esc, toast, hashColor, fmtDate, short } from './util.js';
+import { t } from './i18n.js';
 
 const IMG_EXT = /\.(png|jpe?g|gif|bmp|webp|ico|avif)$/i;
 const MAX_ROWS = 60000;
@@ -148,7 +149,7 @@ export class DiffView {
     this.clear();
   }
 
-  clear(msg = 'Válassz ki egy fájlt a diff megjelenítéséhez') {
+  clear(msg = t('Válassz ki egy fájlt a diff megjelenítéséhez')) {
     this.opts = null;
     this.el.replaceChildren(h('div.empty', icon('file'), msg));
   }
@@ -164,26 +165,33 @@ export class DiffView {
    *   conflict: bool
    * }
    */
-  async show(opts) {
+  /**
+   * soft: same file reloaded with other options (WS, context) - the current
+   * diff stays on screen until the new one arrives, so nothing blinks.
+   */
+  async show(opts, soft = false) {
     this.opts = opts;
     this.sel.clear();
     this.token = Symbol();
     const tok = this.token;
-    this.el.replaceChildren(this.toolbar(null), h('div.diff-body', h('div.diff-msg', 'Betöltés…')));
+    if (soft) this.el.classList.add('busy');
+    else this.el.replaceChildren(this.toolbar(null), h('div.diff-body', h('div.diff-msg', t('Betöltés…'))));
     let res;
     try {
       res = await opts.load(this.prefs.context, this.prefs.ignoreWs);
     } catch (e) {
       if (tok !== this.token) return;
+      this.el.classList.remove('busy');
       this.el.replaceChildren(this.toolbar(null), h('div.diff-body', h('div.diff-msg', String(e))));
       return;
     }
     if (tok !== this.token) return;
+    this.el.classList.remove('busy');
     this.result = res;
     this.render();
   }
 
-  reload() { if (this.opts) this.show(this.opts); }
+  reload() { if (this.opts) this.show(this.opts, true); }
 
   setPref(k, v) {
     this.prefs[k] = v;
@@ -197,27 +205,27 @@ export class DiffView {
     const p = this.prefs;
     let adds = 0, dels = 0;
     if (file) for (const hk of file.hunks) for (const l of hk.lines) { if (l.t === '+') adds++; else if (l.t === '-') dels++; }
-    const ctxSel = h('select.inp', { style: { width: 'auto', padding: '1px 4px', fontSize: '12px' }, title: 'Kontextus sorok',
+    const ctxSel = h('select.inp', { style: { width: 'auto', padding: '1px 4px', fontSize: '12px' }, title: t('Kontextus sorok'),
       on: { change: (e) => this.setPref('context', +e.target.value) } },
-      [[3, '3 sor'], [10, '10 sor'], [25, '25 sor'], [100000, 'Teljes fájl']].map(([v, l]) => h('option', { value: v }, l)));
+      [[3, t('3 sor')], [10, t('10 sor')], [25, t('25 sor')], [100000, t('Teljes fájl')]].map(([v, l]) => h('option', { value: v }, l)));
     ctxSel.value = String(p.context);
     return h('div.diff-toolbar',
       h('span.path', o.oldPath && o.oldPath !== o.path ? [h('span.old', o.oldPath + ' → ')] : null, o.path || ''),
       file ? h('span', h('span.stat-a', `+${adds}`), ' ', h('span.stat-d', `−${dels}`)) : null,
       h('span.grow'),
       ...(o.extra || []),
-      o.onAi && this.result && !this.result.binary ? h('button.btn.sm.ai', { title: 'A diff elemzése AI-jal', on: { click: () => o.onAi(this.result.text) } }, icon('sparkle'), 'AI') : null,
+      o.onAi && this.result && !this.result.binary ? h('button.btn.sm.ai', { title: t('A diff elemzése AI-jal'), on: { click: () => o.onAi(this.result.text) } }, icon('sparkle'), 'AI') : null,
       file && !o.conflict ? [
-        h('button.icon-btn', { title: 'Előző változás (Alt+↑)', on: { click: () => this.jump(-1) } }, icon('up')),
-        h('button.icon-btn', { title: 'Következő változás (Alt+↓)', on: { click: () => this.jump(1) } }, icon('down')),
+        h('button.icon-btn', { title: t('Előző változás (Alt+↑)'), on: { click: () => this.jump(-1) } }, icon('up')),
+        h('button.icon-btn', { title: t('Következő változás (Alt+↓)'), on: { click: () => this.jump(1) } }, icon('down')),
       ] : null,
       !o.conflict ? ctxSel : null,
-      !o.conflict ? h('label.chk', { title: 'Whitespace változások figyelmen kívül hagyása' },
+      !o.conflict ? h('label.chk', { title: t('Whitespace változások figyelmen kívül hagyása') },
         h('input', { type: 'checkbox', checked: p.ignoreWs, on: { change: (e) => this.setPref('ignoreWs', e.target.checked) } }), 'WS') : null,
-      h('button.icon-btn' + (p.wrap ? '.on' : ''), { title: 'Sortörés', on: { click: () => this.setPref('wrap', !p.wrap) } }, icon('wrap')),
+      h('button.icon-btn' + (p.wrap ? '.on' : ''), { title: t('Sortörés'), on: { click: () => this.setPref('wrap', !p.wrap) } }, icon('wrap')),
       !o.conflict ? h('span.seg',
-        h('button' + (p.mode === 'unified' ? '.on' : ''), { title: 'Egyesített nézet', on: { click: () => this.setPref('mode', 'unified') } }, 'Egyesített'),
-        h('button' + (p.mode === 'split' ? '.on' : ''), { title: 'Egymás melletti nézet', on: { click: () => this.setPref('mode', 'split') } }, 'Osztott')) : null,
+        h('button' + (p.mode === 'unified' ? '.on' : ''), { title: t('Egyesített nézet'), on: { click: () => this.setPref('mode', 'unified') } }, t('Egyesített')),
+        h('button' + (p.mode === 'split' ? '.on' : ''), { title: t('Egymás melletti nézet'), on: { click: () => this.setPref('mode', 'split') } }, t('Osztott'))) : null,
     );
   }
 
@@ -230,14 +238,18 @@ export class DiffView {
     const file = files[0];
     if (res.binary || (file && file.binary)) {
       if (IMG_EXT.test(o.path) && o.image) return this.renderImage();
-      this.el.replaceChildren(this.toolbar(null), h('div.diff-body', h('div.diff-msg', 'Bináris fájl – nincs szöveges diff.')));
+      this.el.replaceChildren(this.toolbar(null), h('div.diff-body', h('div.diff-msg', t('Bináris fájl – nincs szöveges diff.'))));
       return;
     }
     if (!file || !file.hunks.length) {
       const meta = file ? file.header.filter((l) => /^(old|new|deleted|similarity|rename|copy) /.test(l)).join('\n') : '';
-      this.el.replaceChildren(this.toolbar(file), h('div.diff-body', h('div.diff-msg', meta || (this.prefs.ignoreWs ? 'Csak whitespace változás.' : 'Nincs tartalmi változás.'))));
+      this.el.replaceChildren(this.toolbar(file), h('div.diff-body', h('div.diff-msg', meta || (this.prefs.ignoreWs ? t('Csak whitespace változás.') : t('Nincs tartalmi változás.')))));
       return;
     }
+    // Re-rendering the same file (mode, wrap, WS, context) keeps the scroll position.
+    const keep = this.scrollEl && this.scrollEl.isConnected && this.renderedPath === o.path
+      ? { top: this.scrollEl.scrollTop, left: this.scrollEl.scrollLeft } : null;
+    this.renderedPath = o.path;
     this.file = file;
     const scroll = h('div.diff-scroll');
     const mini = h('div.minimap');
@@ -246,6 +258,7 @@ export class DiffView {
     const { html, marks, rowCount } = this.prefs.mode === 'split' ? this.htmlSplit(file) : this.htmlUnified(file);
     scroll.innerHTML = `<div class="diff ${this.prefs.wrap ? 'wrap' : ''}">${html}</div>`;
     this.scrollEl = scroll;
+    if (keep) { scroll.scrollTop = keep.top; scroll.scrollLeft = keep.left; }
     this.bindRows(scroll);
     this.renderMinimap(mini, scroll, marks, rowCount);
     this.updateSelBar();
@@ -255,7 +268,7 @@ export class DiffView {
     const a = this.opts.actions;
     if (!a || !this.opts.apply) return '';
     if (a === 'stage')
-      return `<button class="btn sm" data-act="stage" data-h="${hi}">Stage hunk</button><button class="btn sm" data-act="discard" data-h="${hi}">Elvetés</button>`;
+      return `<button class="btn sm" data-act="stage" data-h="${hi}">Stage hunk</button><button class="btn sm" data-act="discard" data-h="${hi}">${t('Elvetés')}</button>`;
     if (a === 'unstage') return `<button class="btn sm" data-act="unstage" data-h="${hi}">Unstage hunk</button>`;
     return '';
   }
@@ -279,7 +292,7 @@ export class DiffView {
         count++;
       });
     });
-    const cut = count > MAX_ROWS ? `<div class="diff-msg">A diff túl nagy, csak az első ${MAX_ROWS} sor látszik.</div>` : '';
+    const cut = count > MAX_ROWS ? `<div class="diff-msg">${t('A diff túl nagy, csak az első {0} sor látszik.', MAX_ROWS)}</div>` : '';
     return { html: `<table><colgroup><col style="width:50px"><col style="width:50px"><col style="width:16px"><col></colgroup>${rows.join('')}</table>${cut}`, marks, rowCount: count };
   }
 
@@ -321,7 +334,7 @@ export class DiffView {
         }
       }
     });
-    const cut = count > MAX_ROWS ? `<div class="diff-msg">A diff túl nagy, csak az első ${MAX_ROWS} sor látszik.</div>` : '';
+    const cut = count > MAX_ROWS ? `<div class="diff-msg">${t('A diff túl nagy, csak az első {0} sor látszik.', MAX_ROWS)}</div>` : '';
     return { html: `<table class="split"><colgroup><col style="width:50px"><col><col style="width:1px"><col style="width:50px"><col></colgroup>${rows.join('')}</table>${cut}`, marks, rowCount: count };
   }
 
@@ -360,11 +373,11 @@ export class DiffView {
     body.querySelector('.sel-bar')?.remove();
     if (!this.sel.size || !this.opts.actions) return;
     const a = this.opts.actions;
-    body.append(h('div.sel-bar', `${this.sel.size} sor kijelölve`,
-      a === 'stage' ? h('button.btn.sm.primary', { on: { click: () => this.lineAction('stage') } }, 'Sorok stage-elése') : null,
-      a === 'stage' ? h('button.btn.sm', { on: { click: () => this.lineAction('discard') } }, 'Sorok elvetése') : null,
-      a === 'unstage' ? h('button.btn.sm.primary', { on: { click: () => this.lineAction('unstage') } }, 'Sorok unstage-elése') : null,
-      h('button.btn.sm.ghost', { on: { click: () => { this.sel.clear(); this.refreshSelection(this.scrollEl); } } }, 'Mégse')));
+    body.append(h('div.sel-bar', t('{0} sor kijelölve', this.sel.size),
+      a === 'stage' ? h('button.btn.sm.primary', { on: { click: () => this.lineAction('stage') } }, t('Sorok stage-elése')) : null,
+      a === 'stage' ? h('button.btn.sm', { on: { click: () => this.lineAction('discard') } }, t('Sorok elvetése')) : null,
+      a === 'unstage' ? h('button.btn.sm.primary', { on: { click: () => this.lineAction('unstage') } }, t('Sorok unstage-elése')) : null,
+      h('button.btn.sm.ghost', { on: { click: () => { this.sel.clear(); this.refreshSelection(this.scrollEl); } } }, t('Mégse'))));
   }
 
   async hunkAction(act, hi, selected) {
@@ -477,19 +490,19 @@ export class DiffView {
     const sa = src(a, o.oldPath || o.path), sb = src(b, o.path);
     const box = h('div.img-diff');
     const sides = () => h('div.sides',
-      h('figure.o', sa ? h('img', { src: sa, on: { load: (e) => (e.target.nextSibling.textContent = `Régi – ${e.target.naturalWidth}×${e.target.naturalHeight} · ${kb(a)}`) } }) : h('div.diff-msg', 'nincs'), h('figcaption', 'Régi')),
-      h('figure.n', sb ? h('img', { src: sb, on: { load: (e) => (e.target.nextSibling.textContent = `Új – ${e.target.naturalWidth}×${e.target.naturalHeight} · ${kb(b)}`) } }) : h('div.diff-msg', 'nincs'), h('figcaption', 'Új')));
+      h('figure.o', sa ? h('img', { src: sa, on: { load: (e) => (e.target.nextSibling.textContent = t('Régi – {0}×{1} · {2}', e.target.naturalWidth, e.target.naturalHeight, kb(a))) } }) : h('div.diff-msg', t('nincs')), h('figcaption', t('Régi'))),
+      h('figure.n', sb ? h('img', { src: sb, on: { load: (e) => (e.target.nextSibling.textContent = t('Új – {0}×{1} · {2}', e.target.naturalWidth, e.target.naturalHeight, kb(b))) } }) : h('div.diff-msg', t('nincs')), h('figcaption', t('Új'))));
     const onion = () => {
       const top = h('img', { src: sb || '', style: { opacity: 0.5 } });
       const slider = h('input', { type: 'range', min: 0, max: 100, value: 50, on: { input: (e) => (top.style.opacity = e.target.value / 100) } });
-      return [h('div.modes', 'Régi', slider, 'Új'), h('div.onion', sa ? h('img', { src: sa }) : null, top)];
+      return [h('div.modes', t('Régi'), slider, t('Új')), h('div.onion', sa ? h('img', { src: sa }) : null, top)];
     };
     const kb = (d) => (d ? `${((d.length * 3) / 4 / 1024).toFixed(1)} KB` : '');
     let mode = 'side';
     const draw = () => {
       box.replaceChildren(h('div.modes', h('span.seg',
-        h('button' + (mode === 'side' ? '.on' : ''), { on: { click: () => { mode = 'side'; draw(); } } }, 'Egymás mellett'),
-        h('button' + (mode === 'onion' ? '.on' : ''), { disabled: !(sa && sb), on: { click: () => { mode = 'onion'; draw(); } } }, 'Átúsztatás'))),
+        h('button' + (mode === 'side' ? '.on' : ''), { on: { click: () => { mode = 'side'; draw(); } } }, t('Egymás mellett')),
+        h('button' + (mode === 'onion' ? '.on' : ''), { disabled: !(sa && sb), on: { click: () => { mode = 'onion'; draw(); } } }, t('Átúsztatás')))),
         ...(mode === 'side' ? [sides()] : onion()));
     };
     draw();

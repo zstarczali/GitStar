@@ -1,5 +1,7 @@
 // Small DOM / UI helpers shared by the views.
 
+import { t, getLang } from './i18n.js';
+
 export const invoke = (cmd, args) => window.__TAURI__.core.invoke(cmd, args);
 
 // replaceChildren that skips null / false (conditional children)
@@ -94,9 +96,47 @@ const P = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
 };
 
+
+// AI theme: alternative icons (neural nets, chips, sparkles, data streams)
+const SPARK = (x, y, s = 1) => `<path d="M${x} ${y - 2 * s}l${0.5 * s} ${1.4 * s} ${1.5 * s} ${0.6 * s}-${1.5 * s} ${0.6 * s}-${0.5 * s} ${1.4 * s}-${0.5 * s}-${1.4 * s}-${1.5 * s}-${0.6 * s} ${1.5 * s}-${0.6 * s}z"/>`;
+const AI_P = {
+  fetch: '<circle cx="12" cy="4" r="1.6"/><circle cx="6" cy="8" r="1.4"/><circle cx="18" cy="8" r="1.4"/><path d="M7.2 8.8 11 12M16.8 8.8 13 12M12 5.6V12"/><path d="M12 12v6"/><path d="m8.5 15.5 3.5 3.5 3.5-3.5"/><path d="M5 21.5h14" stroke-dasharray="2 2"/>',
+  pull: '<rect x="7" y="2.5" width="10" height="7" rx="2"/><path d="M10 6h.01M14 6h.01"/><path d="M12 9.5V19"/><path d="m7.5 14.5 4.5 4.5 4.5-4.5"/><path d="M4 21.5h16" stroke-dasharray="1.5 2.5"/>',
+  push: '<path d="M12 20V8"/><path d="m7 12 5-5 5 5"/>' + SPARK(12, 3.5) + '<circle cx="5" cy="19" r="1.3"/><circle cx="19" cy="19" r="1.3"/><path d="M6.3 19h3M14.7 19h3" stroke-dasharray="1 1.5"/>',
+  branch: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><circle cx="18" cy="17" r="1.4"/><path d="M6 7v10"/><path d="M16.2 9.8C11 11 6 12 6 17"/><path d="M16.8 16.2 8 12" stroke-dasharray="1.5 1.5"/>',
+  merge: '<circle cx="5" cy="5" r="1.8"/><circle cx="5" cy="19" r="1.8"/><circle cx="19" cy="12" r="2.6"/><path d="M6.6 6 16.6 11M6.6 18l10-5"/><path d="M5 6.8v10.4" stroke-dasharray="1.5 1.5"/><path d="M19 9.4V8M19 16v-1.4M21.6 12H23"/>',
+  stash: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 1.5v2.5M15 1.5v2.5M9 20v2.5M15 20v2.5M1.5 9H4M1.5 15H4M20 9h2.5M20 15h2.5"/><rect x="8.5" y="8.5" width="7" height="7" rx="1.2"/><path d="M10.5 12h3"/>',
+  pop: '<rect x="4" y="11" width="16" height="10" rx="3"/><path d="M8 21v1.5M16 21v1.5"/><path d="M12 15V4"/><path d="m8 8 4-4 4 4"/>' + SPARK(19, 5),
+  terminal: '<rect x="2.5" y="4" width="19" height="16" rx="3"/><path d="m6.5 9 3 3-3 3"/><path d="M12 15h5"/>' + SPARK(17.5, 8.5, 0.8),
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="9" cy="13" r="1.2"/><circle cx="15" cy="11" r="1.2"/><circle cx="15" cy="15.5" r="1.2"/><path d="m10.1 12.5 3.8-1M10.1 13.6l3.8 1.5"/>',
+  settings: '<circle cx="12" cy="12" r="3.2"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/><circle cx="12" cy="2" r=".8"/><circle cx="12" cy="22" r=".8"/><circle cx="2" cy="12" r=".8"/><circle cx="22" cy="12" r=".8"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>' ,
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>' + SPARK(17, 5),
+  sparkle: SPARK(12, 10, 3.2) + SPARK(19, 17, 1.2) + SPARK(5, 4, 0.9),
+  changes: '<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19z"/>' + SPARK(19, 15) + SPARK(5, 5, 0.9),
+  history: '<circle cx="12" cy="12" r="9" stroke-dasharray="3 2"/><path d="M12 7v5l3.5 2.5"/><circle cx="12" cy="12" r="1.2"/>',
+  compare: '<rect x="3" y="4" width="7" height="16" rx="2"/><rect x="14" y="4" width="7" height="16" rx="2"/><path d="M10 9h4M10 15h4" stroke-dasharray="1 1.5"/><path d="M5.5 8h2M5.5 12h2M16.5 12h2M16.5 16h2"/>',
+  tag: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9z"/><circle cx="8" cy="8" r="1.5"/>' + SPARK(12.5, 13, 0.8),
+  cloud: '<path d="M7 18a5 5 0 0 1-.6-10A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z"/><circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/><path d="M10.5 13h3"/>',
+  star: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1 6.2L12 17.3 6.5 20.2l1-6.2L3 9.6l6.2-.9z"/><circle cx="12" cy="12" r="1.3"/>',
+  console: '<rect x="2.5" y="4" width="19" height="16" rx="3"/><path d="m6.5 10 3 2-3 2"/><path d="M12 14h3.5"/><circle cx="18" cy="8" r="1"/><circle cx="15" cy="8" r="1"/>',
+  commit: '<circle cx="12" cy="12" r="3.5"/><path d="M2 12h6.5M15.5 12H22"/>' + SPARK(12, 4.5, 0.9),
+  refresh: '<path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 4v5h-5"/><circle cx="12" cy="12" r="1.4"/>',
+  file: '<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/><path d="M8.5 13h2M12.5 13h3M8.5 16.5h5" stroke-dasharray="1.5 1"/>',
+  check: '<path d="m4 12 5 5 9-10"/>' + SPARK(19.5, 16, 0.7),
+};
+const isAi = () => document.documentElement.dataset.theme === 'ai';
+
+// one gradient for every AI theme icon (CSS: stroke: url(#ai-grad))
+document.addEventListener('DOMContentLoaded', () => {
+  const d = document.createElement('div');
+  d.innerHTML = '<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs><linearGradient id="ai-grad" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#22d3ee"/><stop offset=".5" stop-color="#a855f7"/><stop offset="1" stop-color="#ec4899"/></linearGradient></defs></svg>';
+  document.body.prepend(d.firstChild);
+});
+
 export function icon(name, cls = '') {
   const span = document.createElement('span');
-  span.innerHTML = `<svg class="i ${cls}" viewBox="0 0 24 24">${P[name] || ''}</svg>`;
+  span.innerHTML = `<svg class="i ${cls}" viewBox="0 0 24 24">${(isAi() && AI_P[name]) || P[name] || ''}</svg>`;
   return span.firstChild;
 }
 
@@ -146,7 +186,7 @@ export async function confirmDlg(title, text, okLabel = 'OK', danger = false) {
   return !!(await modal({
     title,
     body: h('div.desc', text),
-    buttons: [{ label: 'Mégse', value: false }, { label: okLabel, value: true, primary: !danger, danger }],
+    buttons: [{ label: t('Mégse'), value: false }, { label: okLabel, value: true, primary: !danger, danger }],
   }));
 }
 
@@ -178,7 +218,7 @@ export async function formDlg(title, fields, okLabel = 'OK', desc) {
     for (const f of fields) o[f.name] = f.type === 'checkbox' ? els[f.name].checked : els[f.name].value;
     return o;
   };
-  return modal({ title, body, buttons: [{ label: 'Mégse', value: null }, { label: okLabel, value: collect, primary: true }] });
+  return modal({ title, body, buttons: [{ label: t('Mégse'), value: null }, { label: okLabel, value: collect, primary: true }] });
 }
 
 // ── context menu ──
@@ -215,16 +255,18 @@ export function contextMenu(e, items) {
 // ── time / people ──
 export function relTime(ts) {
   const d = Date.now() / 1000 - ts;
-  if (d < 60) return 'épp most';
-  if (d < 3600) return `${Math.floor(d / 60)} perce`;
-  if (d < 86400) return `${Math.floor(d / 3600)} órája`;
-  if (d < 86400 * 7) return `${Math.floor(d / 86400)} napja`;
+  if (d < 60) return t('épp most');
+  if (d < 3600) return t('{0} perce', Math.floor(d / 60));
+  if (d < 86400) return t('{0} órája', Math.floor(d / 3600));
+  if (d < 86400 * 7) return t('{0} napja', Math.floor(d / 86400));
   return fmtDate(ts);
 }
 export function fmtDate(ts, withTime = false) {
   const dt = new Date(ts * 1000);
   const p = (n) => String(n).padStart(2, '0');
-  const s = `${dt.getFullYear()}.${p(dt.getMonth() + 1)}.${p(dt.getDate())}.`;
+  const s = getLang() === 'en'
+    ? `${dt.getFullYear()}-${p(dt.getMonth() + 1)}-${p(dt.getDate())}`
+    : `${dt.getFullYear()}.${p(dt.getMonth() + 1)}.${p(dt.getDate())}.`;
   return withTime ? `${s} ${p(dt.getHours())}:${p(dt.getMinutes())}` : s;
 }
 export function hashColor(str) {

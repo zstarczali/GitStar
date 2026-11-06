@@ -20,6 +20,7 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::git_version,
+            commands::set_ui_language,
             commands::open_repo,
             commands::init_repo,
             commands::clone_repo,
@@ -48,6 +49,8 @@ pub fn run() {
             commands::open_terminal,
             commands::ai_commit_message,
             commands::ai_analyze,
+            commands::ai_test,
+            commands::app_info,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GitStar");

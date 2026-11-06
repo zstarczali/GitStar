@@ -2,7 +2,20 @@
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+
+/// Language of backend messages (errors shown in the UI). Set by the UI.
+static ENGLISH: AtomicBool = AtomicBool::new(false);
+
+pub fn set_english(on: bool) {
+    ENGLISH.store(on, Ordering::Relaxed);
+}
+
+/// Picks the Hungarian or the English text.
+pub fn tr(hu: &str, en: &str) -> String {
+    if ENGLISH.load(Ordering::Relaxed) { en.to_string() } else { hu.to_string() }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
@@ -11,8 +24,14 @@ pub struct Settings {
     pub git_path: String,
     /// "dark" | "light" | "system"
     pub theme: String,
+    /// "auto" | "hu" | "en"
+    pub ui_language: String,
+    /// "anthropic" | "deepseek"
+    pub ai_provider: String,
     pub anthropic_api_key: String,
     pub ai_model: String,
+    pub deepseek_api_key: String,
+    pub deepseek_model: String,
     /// Language of AI generated text: "hu" | "en"
     pub ai_language: String,
     /// "conventional" | "simple" | "detailed"
@@ -34,8 +53,12 @@ impl Default for Settings {
         Settings {
             git_path: String::new(),
             theme: "dark".into(),
+            ui_language: "auto".into(),
+            ai_provider: "anthropic".into(),
             anthropic_api_key: String::new(),
             ai_model: "claude-opus-5-5".into(),
+            deepseek_api_key: String::new(),
+            deepseek_model: "deepseek-flash".into(),
             ai_language: "hu".into(),
             commit_style: "conventional".into(),
             recent_repos: vec![],
@@ -48,6 +71,18 @@ impl Default for Settings {
             log_limit: 1500,
             font_size: 13,
         }
+    }
+}
+
+impl Settings {
+    /// API key of the selected AI provider.
+    pub fn ai_key(&self) -> &str {
+        if self.ai_provider == "deepseek" { &self.deepseek_api_key } else { &self.anthropic_api_key }
+    }
+
+    /// Model id of the selected AI provider.
+    pub fn ai_model_id(&self) -> &str {
+        if self.ai_provider == "deepseek" { &self.deepseek_model } else { &self.ai_model }
     }
 }
 

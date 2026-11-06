@@ -16,7 +16,8 @@ Minden git műveletet a `git.exe` hajt végre (hookok, credential helper, LFS, c
 - **Ágak / remote-ok / tagek / stash-ek**: checkout (stash-elési opcióval), új ág, átnevezés, törlés (remote-on is), upstream, merge (ff / no-ff / ff-only / squash), rebase, cherry-pick, revert, reset (soft/mixed/hard), fetch / pull (merge/rebase/ff-only, autostash) / push (upstream, force-with-lease, tagek), tag létrehozás/push/törlés, stash push/apply/pop/drop/branch, remote hozzáadás/URL/törlés
 - **Folyamatban lévő merge/rebase/cherry-pick/revert** sáv: folytatás / kihagyás / megszakítás, konfliktus feloldás ours / theirs / kézi
 - **Git konzol** (Ctrl+`): bármilyen git parancs, előzményekkel; minden művelet kimenete itt is látszik
-- **Sötét / világos / rendszer téma**, állítható betűméret, átméretezhető panelek
+- **Sötét / világos / AI (neon) / rendszer téma**: az AI téma színátmenetes neon felületet, animált vonalakat és saját, „AI-os” ikonkészletet használ; állítható betűméret, átméretezhető panelek
+- **Magyar és angol felület** (Beállítások → Felület nyelve: automatikus / Magyar / English), a háttér hibaüzenetei is a választott nyelven jönnek
 
 ## Futtatás
 
@@ -38,9 +39,13 @@ npm run build
 
 ## AI beállítás
 
-Beállítások → AI: add meg az Anthropic API kulcsot (console.anthropic.com). Alapértelmezett modell: `claude-opus-5-5`; gyorsabb/olcsóbb commit üzenetekhez választható a `claude-haiku-5-5`.
+Beállítások → AI → *AI szolgáltató*: **Anthropic Claude** vagy **DeepSeek**.
+
+- **Claude**: Anthropic API kulcs (console.anthropic.com). Alapértelmezett modell: `claude-opus-5-5`; gyorsabb/olcsóbb commit üzenetekhez választható a `claude-haiku-5-5`.
+- **DeepSeek**: DeepSeek API kulcs (platform.deepseek.com). Alapértelmezett modell: `deepseek-flash`, erősebb: `deepseek-v4-pro`, vagy bármilyen más modell id (Egyéb…).
+
 A kulcs a gépen, az alkalmazás konfigurációs mappájában tárolt `settings.json`-ban van (`%APPDATA%\hu.gitstar.app\settings.json`), titkosítás nélkül.
-Nagyon nagy diff esetén (600 000 karakter felett) csak az eleje kerül az AI-hoz; ezt a felület jelzi.
+Nagyon nagy diff esetén (Claude-nál 600 000, DeepSeek-nél 300 000 karakter felett) csak az eleje kerül az AI-hoz; ezt a felület jelzi.
 
 ## Billentyűk
 
@@ -69,7 +74,8 @@ www/
   js/app.js     nézetek, oldalsáv, eszköztár, dialógusok, AI panel, konzol
   js/diff.js    diff parser + megjelenítő, hunk/sor patch készítés, kép diff, blame
   js/graph.js   gráf sor SVG
-  js/util.js    DOM segédek, menük, modálok, markdown
+  js/util.js    DOM segédek, menük, modálok, markdown, ikonkészletek
+  js/i18n.js    fordítás: t('magyar szöveg') → angol szótár
 ```
 
 A frontend sima ES modul (nincs bundler); a `www` mappát a Tauri build ágyazza be.

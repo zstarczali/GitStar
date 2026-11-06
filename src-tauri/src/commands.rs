@@ -3,7 +3,7 @@
 use crate::ai;
 use crate::git::{git_dir, Git};
 use crate::graph::{self, GraphRow};
-use crate::settings::{Settings, SettingsStore};
+use crate::settings::{tr, Settings, SettingsStore};
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -43,6 +43,12 @@ pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<(
     state.settings.save(settings)
 }
 
+/// The UI tells the backend which language to use for its messages.
+#[tauri::command]
+pub fn set_ui_language(lang: String) {
+    crate::settings::set_english(lang == "en");
+}
+
 #[tauri::command]
 pub async fn git_version(state: State<'_, AppState>, path: Option<String>) -> Result<String, String> {
     let git = match path {
@@ -62,11 +68,11 @@ pub struct RepoInfo {
 
 fn repo_info(git: &Git, path: &str) -> Result<RepoInfo, String> {
     if !Path::new(path).exists() {
-        return Err(format!("A mappa nem létezik: {path}"));
+        return Err(format!("{}: {path}", tr("A mappa nem létezik", "The folder does not exist")));
     }
     let top = git
         .run(path, &["rev-parse", "--show-toplevel"])
-        .map_err(|_| format!("Ez nem git repository: {path}"))?;
+        .map_err(|_| format!("{}: {path}", tr("Ez nem git repository", "Not a git repository")))?;
     let top = top.trim().replace('/', std::path::MAIN_SEPARATOR_STR);
     let name = Path::new(&top)
         .file_name()
@@ -608,7 +614,7 @@ pub async fn commit_details(state: State<'_, AppState>, repo: String, hash: Stri
         )?;
         let f: Vec<&str> = out.splitn(10, '\x1f').collect();
         if f.len() < 10 {
-            return Err("Nem olvasható commit".into());
+            return Err(tr("Nem olvasható commit", "Cannot read the commit"));
         }
         let parents: Vec<String> = f[1].split_whitespace().map(|x| x.to_string()).collect();
         let base = parents.first().cloned().unwrap_or_else(|| empty_tree(&git, &repo));
@@ -1033,7 +1039,7 @@ pub async fn ai_commit_message(state: State<'_, AppState>, repo: String) -> Resu
     let (branch, recent, stat, diff) = blocking(move || {
         let stat = git.run(&repo, &["diff", "--cached", "--stat", "--no-color"])?;
         if stat.trim().is_empty() {
-            return Err("Nincs stage-elt változás. Előbb add hozzá a fájlokat (Stage).".to_string());
+            return Err(tr("Nincs stage-elt változás. Előbb add hozzá a fájlokat (Stage).", "Nothing is staged. Stage some files first."));
         }
         let diff = git.run(&repo, &["diff", "--cached", "--no-color", "--no-ext-diff", "-U3", "-M"])?;
         let branch = git.run(&repo, &["branch", "--show-current"]).unwrap_or_default();
@@ -1041,10 +1047,11 @@ pub async fn ai_commit_message(state: State<'_, AppState>, repo: String) -> Resu
         Ok((branch.trim().to_string(), recent, stat, diff))
     })
     .await?;
-    let (diff, truncated) = ai::cut_diff(&diff);
+    let (diff, truncated) = ai::cut_diff(&diff, &cfg.ai_provider);
     let text = ai::complete(ai::AiRequest {
-        api_key: &cfg.anthropic_api_key,
-        model: &cfg.ai_model,
+        provider: &cfg.ai_provider,
+        api_key: cfg.ai_key(),
+        model: cfg.ai_model_id(),
         system: ai::commit_system(&cfg.ai_language, &cfg.commit_style),
         user: ai::commit_user(&branch, &recent, &stat, &diff, truncated),
         effort: "low",
@@ -1085,7 +1092,7 @@ pub async fn ai_analyze(state: State<'_, AppState>, repo: String, req: AnalyzeRe
         };
         match req.kind.as_str() {
             "commit" => {
-                let h = req.hash.clone().ok_or("hiányzó commit")?;
+                let h = req.hash.clone().ok_or_else(|| tr("hiányzó commit", "missing commit"))?;
                 let header = git.run(&repo, &["show", "-s", "--format=commit %H%nAuthor: %an <%ae>%nDate: %aI%n%n%B", &h])?;
                 let parents = git.run(&repo, &["show", "-s", "--format=%P", &h])?;
                 let base = parents.split_whitespace().next().map(|x| x.to_string()).unwrap_or_else(|| empty_tree(&git, &repo));
@@ -1094,7 +1101,7 @@ pub async fn ai_analyze(state: State<'_, AppState>, repo: String, req: AnalyzeRe
                 Ok((header, git.run(&repo, &s(&a))?))
             }
             "range" => {
-                let from = req.from.clone().ok_or("hiányzó kiinduló revízió")?;
+                let from = req.from.clone().ok_or_else(|| tr("hiányzó kiinduló revízió", "missing start revision"))?;
                 let to = req.to.clone().unwrap_or_default();
                 let base = if req.merge_base.unwrap_or(false) && !to.is_empty() {
                     git.run(&repo, &["merge-base", &from, &to]).map(|x| x.trim().to_string()).unwrap_or(from.clone())
@@ -1140,9 +1147,9 @@ pub async fn ai_analyze(state: State<'_, AppState>, repo: String, req: AnalyzeRe
     })
     .await?;
     if diff.trim().is_empty() {
-        return Err("Nincs mit elemezni: a diff üres.".into());
+        return Err(tr("Nincs mit elemezni: a diff üres.", "Nothing to analyse: the diff is empty."));
     }
-    let (diff, truncated) = ai::cut_diff(&diff);
+    let (diff, truncated) = ai::cut_diff(&diff, &cfg.ai_provider);
     let mut user = String::new();
     user.push_str(&context);
     user.push_str("\n\n<diff>\n");
@@ -1161,8 +1168,9 @@ pub async fn ai_analyze(state: State<'_, AppState>, repo: String, req: AnalyzeRe
     }
     let system = if kind == "range" { ai::compare_system(&cfg.ai_language) } else { ai::analyze_system(&cfg.ai_language) };
     let text = ai::complete(ai::AiRequest {
-        api_key: &cfg.anthropic_api_key,
-        model: &cfg.ai_model,
+        provider: &cfg.ai_provider,
+        api_key: cfg.ai_key(),
+        model: cfg.ai_model_id(),
         system,
         user,
         effort: "medium",
@@ -1170,4 +1178,46 @@ pub async fn ai_analyze(state: State<'_, AppState>, repo: String, req: AnalyzeRe
     })
     .await?;
     Ok(AiResult { text, truncated })
+}
+
+/// Settings → AI → Test: sends a tiny request with the values typed in the
+/// dialog (not yet saved) and reports the model's answer and the time taken.
+#[tauri::command]
+pub async fn ai_test(provider: String, api_key: String, model: String) -> Result<String, String> {
+    let started = std::time::Instant::now();
+    let text = ai::complete(ai::AiRequest {
+        provider: &provider,
+        api_key: &api_key,
+        model: &model,
+        system: "You are a connection test. Answer with exactly: OK".to_string(),
+        user: "Connection test. Answer with exactly: OK".to_string(),
+        effort: "low",
+        max_tokens: 200,
+    })
+    .await?;
+    let first: String = text.lines().next().unwrap_or("").chars().take(80).collect();
+    Ok(format!("{model} · {} ms · „{first}”", started.elapsed().as_millis()))
+}
+
+#[derive(Serialize)]
+pub struct AppInfo {
+    pub version: String,
+    pub tauri: String,
+    pub git: String,
+    pub settings_path: String,
+    pub os: String,
+}
+
+/// Data for the About box.
+#[tauri::command]
+pub async fn app_info(state: State<'_, AppState>) -> Result<AppInfo, String> {
+    let git = state.git();
+    let git_ver = blocking(move || git.version()).await.unwrap_or_else(|e| e);
+    Ok(AppInfo {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        tauri: tauri::VERSION.to_string(),
+        git: git_ver,
+        settings_path: state.settings.path.to_string_lossy().into_owned(),
+        os: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
+    })
 }

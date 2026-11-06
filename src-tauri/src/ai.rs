@@ -1,5 +1,6 @@
 //! AI features through the Claude Messages API (raw HTTP, API key auth).
 
+use crate::settings::tr;
 use serde_json::{json, Value};
 
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
@@ -10,7 +11,14 @@ const FALLBACK_BETA: &str = "server-side-fallback-2026-07-01";
 /// told so in the result.
 pub const MAX_DIFF_CHARS: usize = 600_000;
 
+const DEEPSEEK_URL: &str = "https://api.deepseek.com/chat/completions";
+
+/// Smaller diff limit for DeepSeek (smaller context window than Claude).
+pub const DEEPSEEK_MAX_DIFF_CHARS: usize = 300_000;
+
 pub struct AiRequest<'a> {
+    /// "anthropic" | "deepseek"
+    pub provider: &'a str,
     pub api_key: &'a str,
     pub model: &'a str,
     pub system: String,
@@ -30,8 +38,11 @@ fn supports_fallback(model: &str) -> bool {
 }
 
 pub async fn complete(req: AiRequest<'_>) -> Result<String, String> {
+    if req.provider == "deepseek" {
+        return complete_deepseek(req).await;
+    }
     if req.api_key.trim().is_empty() {
-        return Err("Nincs megadva Anthropic API kulcs (Beállítások → AI).".into());
+        return Err(tr("Nincs megadva Anthropic API kulcs (Beállítások → AI).", "No Anthropic API key is set (Settings → AI)."));
     }
     let mut body = json!({
         "model": req.model,
@@ -59,22 +70,23 @@ pub async fn complete(req: AiRequest<'_>) -> Result<String, String> {
     if fallback {
         http = http.header("anthropic-beta", FALLBACK_BETA);
     }
-    let resp = http.json(&body).send().await.map_err(|e| format!("Hálózati hiba: {e}"))?;
+    let resp = http.json(&body).send().await.map_err(|e| format!("{}: {e}", tr("Hálózati hiba", "Network error")))?;
     let status = resp.status();
-    let v: Value = resp.json().await.map_err(|e| format!("Hibás válasz: {e}"))?;
+    let v: Value = resp.json().await.map_err(|e| format!("{}: {e}", tr("Hibás válasz", "Invalid response")))?;
     if !status.is_success() {
-        let msg = v["error"]["message"].as_str().unwrap_or("ismeretlen hiba");
+        let unknown = tr("ismeretlen hiba", "unknown error");
+        let msg = v["error"]["message"].as_str().unwrap_or(&unknown);
         let kind = v["error"]["type"].as_str().unwrap_or("");
         return Err(match status.as_u16() {
-            401 => format!("Érvénytelen API kulcs ({msg})"),
-            429 => format!("Túl sok kérés / kvóta elfogyott, próbáld később ({msg})"),
-            529 => format!("Az API túlterhelt, próbáld később ({msg})"),
-            c => format!("API hiba {c} {kind}: {msg}"),
+            401 => format!("{} ({msg})", tr("Érvénytelen API kulcs", "Invalid API key")),
+            429 => format!("{} ({msg})", tr("Túl sok kérés / kvóta elfogyott, próbáld később", "Too many requests / quota exceeded, try again later")),
+            529 => format!("{} ({msg})", tr("Az API túlterhelt, próbáld később", "The API is overloaded, try again later")),
+            c => format!("{} {c} {kind}: {msg}", tr("API hiba", "API error")),
         });
     }
     if v["stop_reason"].as_str() == Some("refusal") {
         let expl = v["stop_details"]["explanation"].as_str().unwrap_or("");
-        return Err(format!("A modell elutasította a kérést. {expl}"));
+        return Err(format!("{} {expl}", tr("A modell elutasította a kérést.", "The model declined the request.")));
     }
     let text: String = v["content"]
         .as_array()
@@ -88,20 +100,71 @@ pub async fn complete(req: AiRequest<'_>) -> Result<String, String> {
         })
         .unwrap_or_default();
     if text.trim().is_empty() {
-        return Err("Üres válasz érkezett a modelltől.".into());
+        return Err(tr("Üres válasz érkezett a modelltől.", "The model returned an empty response."));
     }
     let mut text = text.trim().to_string();
     if v["stop_reason"].as_str() == Some("max_tokens") {
-        text.push_str("\n\n_(A válasz a maximális hossznál megszakadt.)_");
+        text.push_str(&tr("\n\n_(A válasz a maximális hossznál megszakadt.)_", "\n\n_(The answer was cut at the maximum length.)_"));
     }
     Ok(text)
 }
 
-pub fn cut_diff(diff: &str) -> (String, bool) {
-    if diff.len() <= MAX_DIFF_CHARS {
+/// DeepSeek: OpenAI-compatible chat completions API, Bearer key.
+async fn complete_deepseek(req: AiRequest<'_>) -> Result<String, String> {
+    if req.api_key.trim().is_empty() {
+        return Err(tr("Nincs megadva DeepSeek API kulcs (Beállítások → AI).", "No DeepSeek API key is set (Settings → AI)."));
+    }
+    // max_tokens is left to the server default: the per-model limits are not published.
+    let body = json!({
+        "model": req.model,
+        "messages": [
+            { "role": "system", "content": req.system },
+            { "role": "user", "content": req.user },
+        ],
+        "stream": false,
+    });
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client
+        .post(DEEPSEEK_URL)
+        .bearer_auth(req.api_key.trim())
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("{}: {e}", tr("Hálózati hiba", "Network error")))?;
+    let status = resp.status();
+    let raw = resp.text().await.map_err(|e| format!("{}: {e}", tr("Hibás válasz", "Invalid response")))?;
+    let v: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    if !status.is_success() {
+        let msg = v["error"]["message"].as_str().map(str::to_string).unwrap_or_else(|| raw.chars().take(300).collect());
+        return Err(match status.as_u16() {
+            401 => format!("{} ({msg})", tr("Érvénytelen DeepSeek API kulcs", "Invalid DeepSeek API key")),
+            402 => format!("{} ({msg})", tr("Elfogyott a DeepSeek egyenleg", "DeepSeek balance is insufficient")),
+            429 => format!("{} ({msg})", tr("Túl sok kérés, próbáld később", "Too many requests, try again later")),
+            500 | 503 => format!("{} ({msg})", tr("A DeepSeek szerver túlterhelt vagy hibás, próbáld később", "The DeepSeek server is busy or failing, try again later")),
+            c => format!("DeepSeek {} {c}: {msg}", tr("hiba", "error")),
+        });
+    }
+    let choice = &v["choices"][0];
+    let text = choice["message"]["content"].as_str().unwrap_or("").trim().to_string();
+    if text.is_empty() {
+        return Err(tr("Üres válasz érkezett a modelltől.", "The model returned an empty response."));
+    }
+    let mut text = text;
+    if choice["finish_reason"].as_str() == Some("length") {
+        text.push_str(&tr("\n\n_(A válasz a maximális hossznál megszakadt.)_", "\n\n_(The answer was cut at the maximum length.)_"));
+    }
+    Ok(text)
+}
+
+pub fn cut_diff(diff: &str, provider: &str) -> (String, bool) {
+    let max = if provider == "deepseek" { DEEPSEEK_MAX_DIFF_CHARS } else { MAX_DIFF_CHARS };
+    if diff.len() <= max {
         return (diff.to_string(), false);
     }
-    let mut end = MAX_DIFF_CHARS;
+    let mut end = max;
     while !diff.is_char_boundary(end) {
         end -= 1;
     }

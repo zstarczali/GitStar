@@ -5,7 +5,11 @@ export const ROW_H = 26;
 const MAX_LANES = 14;
 
 export const COLORS = ['#4c8dff', '#e5534b', '#3fb950', '#d29922', '#a371f7', '#39c5cf', '#f778ba', '#e3793a', '#8ddb5a', '#6e7bff', '#db61a2', '#57ab5a'];
-export const laneColor = (i) => COLORS[i % COLORS.length];
+const AI_COLORS = ['#22d3ee', '#a855f7', '#ec4899', '#2ef2c4', '#f59e0b', '#818cf8', '#f472b6', '#34d399', '#c084fc', '#38bdf8', '#fb7185', '#facc15'];
+export const laneColor = (i) => {
+  const pal = document.documentElement.dataset.theme === 'ai' ? AI_COLORS : COLORS;
+  return pal[i % pal.length];
+};
 
 const x = (c) => LANE_W / 2 + c * LANE_W + 2;
 

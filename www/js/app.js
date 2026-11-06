@@ -5,6 +5,7 @@ import {
   short, basename, dirname, splitter, markdown, shellSplit, debounce, esc,
 } from './util.js';
 import { DiffView, renderBlame } from './diff.js';
+import { t, setLang, getLang } from './i18n.js';
 import { graphSvg, graphWidth, ROW_H } from './graph.js';
 
 // ───────────────────────── state ─────────────────────────
@@ -44,6 +45,9 @@ class Repo {
 }
 
 const cur = () => S.repos[S.active] || null;
+const isDeepSeek = () => S.settings?.ai_provider === 'deepseek';
+const aiKey = () => (isDeepSeek() ? S.settings?.deepseek_api_key : S.settings?.anthropic_api_key) || '';
+const aiModel = () => (isDeepSeek() ? S.settings?.deepseek_model : S.settings?.ai_model) || '';
 const prefs = () => ({
   mode: S.settings.diff_mode, context: S.settings.diff_context, ignoreWs: S.settings.diff_ignore_ws, wrap: S.settings.diff_wrap,
 });
@@ -69,19 +73,27 @@ function persistRepos() {
 
 // ───────────────────────── theme ─────────────────────────
 
+function applyLang() {
+  setLang(S.settings.ui_language || 'auto');
+  invoke('set_ui_language', { lang: getLang() }).catch(() => {});
+}
+
 function applyTheme() {
-  let t = S.settings.theme;
-  if (t === 'system') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-  document.documentElement.dataset.theme = t;
+  let th = S.settings.theme;
+  if (th === 'system') th = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  document.documentElement.dataset.theme = th;
   document.documentElement.style.setProperty('--font-size', (S.settings.font_size || 13) + 'px');
 }
 
+const THEMES = ['dark', 'light', 'ai'];
+const THEME_UI = { dark: ['Sötét', 'moon'], light: ['Világos', 'sun'], ai: ['AI', 'sparkle'] };
+
 function toggleTheme() {
   const now = document.documentElement.dataset.theme;
-  S.settings.theme = now === 'dark' ? 'light' : 'dark';
+  S.settings.theme = THEMES[(THEMES.indexOf(now) + 1) % THEMES.length];
   applyTheme();
   saveSettings();
-  renderToolbar();
+  renderAll(true);
 }
 
 // ───────────────────────── git helpers ─────────────────────────
@@ -98,11 +110,11 @@ async function op(label, args, { quiet = false, refresh = true, repo = cur() } =
   setBusy(true, label);
   try {
     const out = await invoke('git_op', { repo: repo.path, args });
-    if (!quiet) toast(out.trim() ? `${label}\n${trimOut(out)}` : `${label}: kész`, 'ok');
+    if (!quiet) toast(out.trim() ? `${label}\n${trimOut(out)}` : t('{0}: kész', label), 'ok');
     consoleLog(repo, args, out, false);
     return out;
   } catch (e) {
-    toast(`${label} sikertelen:\n${e}`, 'err');
+    toast(t('{0} sikertelen:\n{1}', label, e), 'err');
     consoleLog(repo, args, String(e), true);
     return null;
   } finally {
@@ -164,16 +176,16 @@ function renderTabs() {
         mousedown: (e) => { if (e.button === 1) { e.preventDefault(); closeRepo(i); } },
         click: () => switchRepo(i),
         contextmenu: (e) => contextMenu(e, [
-          { label: 'Megnyitás Intézőben', icon: 'folder', action: () => invoke('reveal_in_explorer', { path: r.path }) },
-          { label: 'Terminál itt', icon: 'terminal', action: () => invoke('open_terminal', { path: r.path }) },
-          { label: 'Útvonal másolása', icon: 'copy', action: () => copy(r.path) },
+          { label: t('Megnyitás Intézőben'), icon: 'folder', action: () => invoke('reveal_in_explorer', { path: r.path }) },
+          { label: t('Terminál itt'), icon: 'terminal', action: () => invoke('open_terminal', { path: r.path }) },
+          { label: t('Útvonal másolása'), icon: 'copy', action: () => copy(r.path) },
           '-',
-          { label: 'Bezárás', icon: 'close', action: () => closeRepo(i) },
+          { label: t('Bezárás'), icon: 'close', action: () => closeRepo(i) },
         ]),
       },
     }, icon('folder'), h('span.name', r.name),
-    h('button.x', { title: 'Bezárás', on: { click: (e) => { e.stopPropagation(); closeRepo(i); } } }, icon('close')))),
-    h('button.tab-add', { title: 'Repository megnyitása (Ctrl+O)', on: { click: () => { S.active = -1; renderAll(); } } }, icon('plus')),
+    h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); closeRepo(i); } } }, icon('close')))),
+    h('button.tab-add', { title: t('Repository megnyitása (Ctrl+O)'), on: { click: () => { S.active = -1; renderAll(); } } }, icon('plus')),
   );
 }
 
@@ -185,7 +197,7 @@ function tb(label, ic, action, { disabled, title, badge, spin } = {}) {
 function renderToolbar() {
   const el = document.getElementById('toolbar');
   const r = cur();
-  const dark = document.documentElement.dataset.theme === 'dark';
+  const nextTheme = THEMES[(THEMES.indexOf(document.documentElement.dataset.theme) + 1) % THEMES.length];
   const st = r?.status;
   const no = !r;
   el.replaceChildren(
@@ -198,17 +210,18 @@ function renderToolbar() {
     tb('Pull', 'pull', () => pullDlg(), { disabled: no, badge: st?.behind || null }),
     tb('Push', 'push', () => pushDlg(), { disabled: no, badge: st?.ahead || null }),
     h('div.tb-sep'),
-    tb('Ág', 'branch', () => newBranchDlg(), { disabled: no, title: 'Új ág' }),
+    tb(t('Ág'), 'branch', () => newBranchDlg(), { disabled: no, title: t('Új ág') }),
     tb('Merge', 'merge', () => mergeDlg(), { disabled: no }),
     tb('Stash', 'stash', () => stashDlg(), { disabled: no }),
-    tb('Pop', 'pop', () => stashPop(), { disabled: no || !r?.refs?.stashes?.length, title: 'Legutóbbi stash visszaállítása' }),
+    tb('Pop', 'pop', () => stashPop(), { disabled: no || !r?.refs?.stashes?.length, title: t('Legutóbbi stash visszaállítása') }),
     h('div.tb-sep'),
-    tb('Terminál', 'terminal', () => invoke('open_terminal', { path: r.path }), { disabled: no }),
-    tb('Mappa', 'folder', () => invoke('reveal_in_explorer', { path: r.path }), { disabled: no }),
-    tb('Konzol', 'console', () => toggleConsole(), { disabled: no, title: 'Git konzol (Ctrl+`)' }),
+    tb(t('Terminál'), 'terminal', () => invoke('open_terminal', { path: r.path }), { disabled: no }),
+    tb(t('Mappa'), 'folder', () => invoke('reveal_in_explorer', { path: r.path }), { disabled: no }),
+    tb(t('Konzol'), 'console', () => toggleConsole(), { disabled: no, title: t('Git konzol (Ctrl+`)') }),
     h('div.tb-spacer'),
-    tb(dark ? 'Világos' : 'Sötét', dark ? 'sun' : 'moon', toggleTheme, { title: 'Téma váltása' }),
-    tb('Beállítások', 'settings', () => settingsDlg()),
+    tb(t(THEME_UI[nextTheme][0]), THEME_UI[nextTheme][1], toggleTheme, { title: t('Téma váltása (Sötét → Világos → AI)') }),
+    tb(t('Beállítások'), 'settings', () => settingsDlg()),
+    tb(t('Névjegy'), 'info', () => aboutDlg(), { title: t('A GitStar névjegye (F1)') }),
   );
 }
 
@@ -217,12 +230,12 @@ function renderStatusbar() {
   const r = cur();
   const st = r?.status;
   el.replaceChildren(
-    S.busy ? h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, icon('refresh', 'spin'), S.busyLabel || 'Folyamatban…') : h('span', r ? r.path : 'Nincs megnyitott repository'),
-    st?.operation ? h('span.op', `⚠ ${opName(st.operation)} folyamatban`) : null,
+    S.busy ? h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, icon('refresh', 'spin'), S.busyLabel || t('Folyamatban…')) : h('span', r ? r.path : t('Nincs megnyitott repository')),
+    st?.operation ? h('span.op', t('⚠ {0} folyamatban', opName(st.operation))) : null,
     h('span.grow'),
-    st ? h('span', `${st.staged.length} staged · ${st.unstaged.length} változott${st.conflicted.length ? ` · ${st.conflicted.length} konfliktus` : ''}`) : null,
-    r ? h('span', `${r.commits.length} commit`) : null,
-    h('span', `AI: ${S.settings?.anthropic_api_key ? S.settings.ai_model : 'nincs kulcs'}`),
+    st ? h('span', t('{0} staged · {1} változott', st.staged.length, st.unstaged.length) + (st.conflicted.length ? t(' · {0} konfliktus', st.conflicted.length) : '')) : null,
+    r ? h('span', t('{0} commit', r.commits.length)) : null,
+    h('span', t('AI: {0}', aiKey() ? aiModel() : t('nincs kulcs'))),
   );
 }
 
@@ -233,16 +246,16 @@ const opName = (o) => ({ merge: 'Merge', rebase: 'Rebase', 'cherry-pick': 'Cherr
 function renderSidebar() {
   const el = document.getElementById('sidebar');
   const r = cur();
-  if (!r) { el.replaceChildren(h('div.empty', icon('star'), 'Nyiss meg egy repository-t')); return; }
+  if (!r) { el.replaceChildren(h('div.empty', icon('star'), t('Nyiss meg egy repository-t'))); return; }
   const st = r.status;
   const changes = st ? st.staged.length + st.unstaged.length + st.conflicted.length : 0;
   const nav = h('div.side-nav',
-    h('div.nav-item' + (r.view === 'changes' ? '.active' : ''), { on: { click: () => setView('changes') } }, icon('changes'), 'Lokális változások', changes ? h('span.count', changes) : null),
-    h('div.nav-item' + (r.view === 'history' && !r.logRev && !r.logPath ? '.active' : ''), { on: { click: () => { r.logRev = ''; r.logPath = ''; setView('history', true); } } }, icon('history'), 'Összes commit'),
-    h('div.nav-item' + (r.view === 'compare' ? '.active' : ''), { on: { click: () => setView('compare') } }, icon('compare'), 'Összehasonlítás'),
+    h('div.nav-item' + (r.view === 'changes' ? '.active' : ''), { on: { click: () => setView('changes') } }, icon('changes'), t('Lokális változások'), changes ? h('span.count', changes) : null),
+    h('div.nav-item' + (r.view === 'history' && !r.logRev && !r.logPath ? '.active' : ''), { on: { click: () => { r.logRev = ''; r.logPath = ''; setView('history', true); } } }, icon('history'), t('Összes commit')),
+    h('div.nav-item' + (r.view === 'compare' ? '.active' : ''), { on: { click: () => setView('compare') } }, icon('compare'), t('Összehasonlítás')),
   );
   const filter = h('input.inp.side-filter', {
-    placeholder: 'Szűrés…', value: r.sideFilter,
+    placeholder: t('Szűrés…'), value: r.sideFilter,
     on: { input: debounce((e) => { r.sideFilter = e.target.value; renderSideTree(tree, r); }, 120) },
   });
   const tree = h('div.side-tree');
@@ -313,14 +326,14 @@ function renderSideTree(tree, r) {
       click: () => { closed ? r.closedSecs.delete(key) : r.closedSecs.add(key); renderSidebar(); },
       contextmenu: (e) => contextMenu(e, [
         { label: `Fetch: ${rm.name}`, icon: 'fetch', action: () => op(`Fetch ${rm.name}`, ['fetch', '--prune', rm.name]) },
-        { label: 'URL másolása', icon: 'copy', action: () => copy(rm.url) },
-        { label: 'URL módosítása…', icon: 'changes', action: async () => {
-          const v = await formDlg('Remote URL', [{ name: 'url', label: rm.name, value: rm.url }], 'Mentés');
+        { label: t('URL másolása'), icon: 'copy', action: () => copy(rm.url) },
+        { label: t('URL módosítása…'), icon: 'changes', action: async () => {
+          const v = await formDlg('Remote URL', [{ name: 'url', label: rm.name, value: rm.url }], t('Mentés'));
           if (v) op('Remote URL', ['remote', 'set-url', rm.name, v.url]);
         } },
         '-',
-        { label: 'Remote törlése', icon: 'trash', danger: true, action: async () => {
-          if (await confirmDlg('Remote törlése', `Törlöd a(z) "${rm.name}" remote-ot?`, 'Törlés', true)) op('Remote törlése', ['remote', 'remove', rm.name]);
+        { label: t('Remote törlése'), icon: 'trash', danger: true, action: async () => {
+          if (await confirmDlg(t('Remote törlése'), t('Törlöd a(z) "{0}" remote-ot?', rm.name), t('Törlés'), true)) op(t('Remote törlése'), ['remote', 'remove', rm.name]);
         } },
       ]),
     } }, icon('cloud'), h('span.nm', rm.name)));
@@ -332,9 +345,9 @@ function renderSideTree(tree, r) {
     }
   }
 
-  const tout = refs.tags.filter((t) => f(t.name)).map((t) => h('div.ref', {
-    title: t.name, on: { click: () => showRefInHistory(t.hash, t.name), contextmenu: (e) => tagMenu(e, t) },
-  }, icon('tag'), h('span.nm', t.name)));
+  const tout = refs.tags.filter((tg) => f(tg.name)).map((tg) => h('div.ref', {
+    title: tg.name, on: { click: () => showRefInHistory(tg.hash, tg.name), contextmenu: (e) => tagMenu(e, tg) },
+  }, icon('tag'), h('span.nm', tg.name)));
 
   const sout = refs.stashes.filter((s) => f(s.message)).map((s) => h('div.ref', {
     title: `${s.name}: ${s.message}`, on: { click: () => showStash(s), contextmenu: (e) => stashMenu(e, s) },
@@ -342,10 +355,10 @@ function renderSideTree(tree, r) {
 
   const addBtn = (title, fn) => h('button.act', { title, on: { click: (e) => { e.stopPropagation(); fn(); } } }, icon('plus'));
   tree.replaceChildren(
-    section(r, 'branches', 'Ágak', locals.length, lout, [addBtn('Új ág', () => newBranchDlg())]),
-    section(r, 'remotes', 'Remote-ok', refs.remote.length, rout, [addBtn('Remote hozzáadása', () => addRemoteDlg())]),
-    section(r, 'tags', 'Tagek', tout.length, tout, [addBtn('Új tag', () => tagDlg('HEAD'))]),
-    section(r, 'stashes', 'Stash-ek', sout.length, sout, [addBtn('Új stash', () => stashDlg())]),
+    section(r, 'branches', t('Ágak'), locals.length, lout, [addBtn(t('Új ág'), () => newBranchDlg())]),
+    section(r, 'remotes', t('Remote-ok'), refs.remote.length, rout, [addBtn(t('Remote hozzáadása'), () => addRemoteDlg())]),
+    section(r, 'tags', t('Tagek'), tout.length, tout, [addBtn(t('Új tag'), () => tagDlg('HEAD'))]),
+    section(r, 'stashes', t('Stash-ek'), sout.length, sout, [addBtn(t('Új stash'), () => stashDlg())]),
   );
 }
 
@@ -373,15 +386,15 @@ function renderContent(keep) {
 function renderWelcome(el) {
   const recent = (S.settings.recent_repos || []).filter((p) => !S.repos.some((r) => r.path === p));
   el.replaceChildren(h('div.welcome', h('div.welcome-box',
-    h('h1', h('img', { src: 'img/icon.svg', alt: '' }), 'GitStar'),
-    h('div.lead', 'Git kliens AI commit üzenetekkel és vizuális diff-fel.'),
+    h('h1', h('img', { src: 'img/icon.svg', alt: '', title: t('Névjegy'), style: { cursor: 'pointer' }, on: { click: () => aboutDlg() } }), 'GitStar'),
+    h('div.lead', t('Git kliens AI commit üzenetekkel és vizuális diff-fel.')),
     h('div.actions',
-      h('button.btn.primary', { on: { click: () => openRepoDlg() } }, icon('folder'), 'Megnyitás…'),
-      h('button.btn', { on: { click: () => cloneDlg() } }, icon('globe'), 'Klónozás…'),
-      h('button.btn', { on: { click: () => initDlg() } }, icon('plus'), 'Új repository…')),
-    recent.length ? h('div', h('div.sec-h', 'Legutóbbi'), h('div.recent', recent.map((p) => h('div.recent-item', { on: { click: () => openRepo(p) } },
+      h('button.btn.primary', { on: { click: () => openRepoDlg() } }, icon('folder'), t('Megnyitás…')),
+      h('button.btn', { on: { click: () => cloneDlg() } }, icon('globe'), t('Klónozás…')),
+      h('button.btn', { on: { click: () => initDlg() } }, icon('plus'), t('Új repository…'))),
+    recent.length ? h('div', h('div.sec-h', t('Legutóbbi')), h('div.recent', recent.map((p) => h('div.recent-item', { on: { click: () => openRepo(p) } },
       icon('folder'), h('div', h('div', basename(p)), h('div.p', p)),
-      h('button.icon-btn.x', { title: 'Eltávolítás a listából', on: { click: (e) => { e.stopPropagation(); S.settings.recent_repos = S.settings.recent_repos.filter((x) => x !== p); saveSettings(); renderContent(); } } }, icon('close')))))) : null,
+      h('button.icon-btn.x', { title: t('Eltávolítás a listából'), on: { click: (e) => { e.stopPropagation(); S.settings.recent_repos = S.settings.recent_repos.filter((x) => x !== p); saveSettings(); renderContent(); } } }, icon('close')))))) : null,
   )));
 }
 
@@ -392,12 +405,12 @@ function opBanner(r) {
   const o = st.operation;
   const cont = { merge: ['merge', '--continue'], rebase: ['rebase', '--continue'], 'cherry-pick': ['cherry-pick', '--continue'], revert: ['revert', '--continue'] }[o];
   const abort = { merge: ['merge', '--abort'], rebase: ['rebase', '--abort'], 'cherry-pick': ['cherry-pick', '--abort'], revert: ['revert', '--abort'], bisect: ['bisect', 'reset'] }[o];
-  return h('div.op-banner', h('b', `${opName(o)} folyamatban.`),
-    st.conflicted.length ? `${st.conflicted.length} konfliktusos fájl vár feloldásra.` : 'Nincs konfliktus – folytatható.',
+  return h('div.op-banner', h('b', t('{0} folyamatban.', opName(o))),
+    st.conflicted.length ? t('{0} konfliktusos fájl vár feloldásra.', st.conflicted.length) : t('Nincs konfliktus – folytatható.'),
     h('span', { style: { flex: 1 } }),
-    cont && o !== 'merge' ? h('button.btn.sm.primary', { disabled: st.conflicted.length > 0 || null, on: { click: () => op(`${opName(o)} folytatása`, ['-c', 'core.editor=true', ...cont]) } }, 'Folytatás') : null,
-    o === 'rebase' ? h('button.btn.sm', { on: { click: () => op('Rebase skip', ['rebase', '--skip']) } }, 'Kihagyás') : null,
-    abort ? h('button.btn.sm', { on: { click: async () => { if (await confirmDlg('Megszakítás', `Megszakítod: ${opName(o)}?`, 'Megszakítás', true)) op(`${opName(o)} megszakítása`, abort); } } }, 'Megszakítás') : null);
+    cont && o !== 'merge' ? h('button.btn.sm.primary', { disabled: st.conflicted.length > 0 || null, on: { click: () => op(t('{0} folytatása', opName(o)), ['-c', 'core.editor=true', ...cont]) } }, t('Folytatás')) : null,
+    o === 'rebase' ? h('button.btn.sm', { on: { click: () => op('Rebase skip', ['rebase', '--skip']) } }, t('Kihagyás')) : null,
+    abort ? h('button.btn.sm', { on: { click: async () => { if (await confirmDlg(t('Megszakítás'), t('Megszakítod: {0}?', opName(o)), t('Megszakítás'), true)) op(t('{0} megszakítása', opName(o)), abort); } } }, t('Megszakítás')) : null);
 }
 
 function fileRow(r, list, f, onSelect) {
@@ -408,7 +421,7 @@ function fileRow(r, list, f, onSelect) {
   const actions = [];
   if (list === 'unstaged') {
     actions.push(h('button.icon-btn', { title: 'Stage', on: { click: (e) => { e.stopPropagation(); stagePaths([f.path]); } } }, icon('plus')));
-    actions.push(h('button.icon-btn', { title: 'Elvetés', on: { click: (e) => { e.stopPropagation(); discardFiles([f]); } } }, icon('undo')));
+    actions.push(h('button.icon-btn', { title: t('Elvetés'), on: { click: (e) => { e.stopPropagation(); discardFiles([f]); } } }, icon('undo')));
   } else if (list === 'staged') {
     actions.push(h('button.icon-btn', { title: 'Unstage', on: { click: (e) => { e.stopPropagation(); unstagePaths([f.path]); } } }, icon('minus')));
   }
@@ -435,29 +448,29 @@ function fileRow(r, list, f, onSelect) {
   actions.length ? h('span.fa', actions) : null);
 }
 
-const statusName = (s) => ({ M: 'Módosítva', A: 'Új', D: 'Törölve', R: 'Átnevezve', C: 'Másolva', T: 'Típus változott', U: 'Konfliktus', '?': 'Nem követett (új)' }[s] || s);
+const statusName = (s) => ({ M: t('Módosítva'), A: t('Új'), D: t('Törölve'), R: t('Átnevezve'), C: t('Másolva'), T: t('Típus változott'), U: t('Konfliktus'), '?': t('Nem követett (új)') }[s] || s);
 
 function renderChanges(el, r, keep) {
   const st = r.status;
-  if (!st) { el.replaceChildren(h('div.empty', 'Állapot betöltése…')); return; }
+  if (!st) { el.replaceChildren(h('div.empty', t('Állapot betöltése…'))); return; }
   const dv = diffView();
   const selected = (list) => (r.multi[list].size ? [...r.multi[list]] : r.selFile?.list === list ? [r.selFile.path] : []);
 
   const unstagedList = h('div.file-list', st.unstaged.map((f) => fileRow(r, 'unstaged', f, (x) => selectChange(r, 'unstaged', x))));
   const stagedList = h('div.file-list', st.staged.map((f) => fileRow(r, 'staged', f, (x) => selectChange(r, 'staged', x))));
   const conflictList = st.conflicted.length ? h('div.file-list-wrap', { style: { flex: 'none', maxHeight: '30%' } },
-    h('div.pane-h', icon('info'), 'Konfliktusok', h('span.sub', st.conflicted.length)),
+    h('div.pane-h', icon('info'), t('Konfliktusok'), h('span.sub', st.conflicted.length)),
     h('div.file-list', st.conflicted.map((f) => fileRow(r, 'conflicted', f, (x) => selectChange(r, 'conflicted', x))))) : null;
 
   const unstagedWrap = h('div.file-list-wrap', { style: { flex: '1' } },
-    h('div.pane-h', 'Unstaged', h('span.sub', st.unstaged.length), h('span.grow'),
-      h('button.btn.sm', { disabled: !st.unstaged.length || null, title: 'Kijelöltek stage-elése', on: { click: () => stagePaths(selected('unstaged')) } }, 'Stage'),
-      h('button.btn.sm', { disabled: !st.unstaged.length || null, on: { click: () => stageAll() } }, 'Összes stage')),
+    h('div.pane-h', t('Unstaged'), h('span.sub', st.unstaged.length), h('span.grow'),
+      h('button.btn.sm', { disabled: !st.unstaged.length || null, title: t('Kijelöltek stage-elése'), on: { click: () => stagePaths(selected('unstaged')) } }, 'Stage'),
+      h('button.btn.sm', { disabled: !st.unstaged.length || null, on: { click: () => stageAll() } }, t('Összes stage'))),
     unstagedList);
   const stagedWrap = h('div.file-list-wrap', { style: { flex: '1' } },
-    h('div.pane-h', 'Staged', h('span.sub', st.staged.length), h('span.grow'),
+    h('div.pane-h', t('Staged'), h('span.sub', st.staged.length), h('span.grow'),
       h('button.btn.sm', { disabled: !st.staged.length || null, on: { click: () => unstagePaths(selected('staged')) } }, 'Unstage'),
-      h('button.btn.sm', { disabled: !st.staged.length || null, on: { click: () => unstagePaths([]) } }, 'Összes unstage')),
+      h('button.btn.sm', { disabled: !st.staged.length || null, on: { click: () => unstagePaths([]) } }, t('Összes unstage'))),
     stagedList);
   const split = h('div.splitter-h');
   const left = h('div.changes-left', conflictList, unstagedWrap, split, stagedWrap, commitBox(r));
@@ -474,7 +487,7 @@ function renderChanges(el, r, keep) {
   else {
     const first = all[0];
     if (first) selectChange(r, first[0], first[1], true);
-    else dv.clear('Nincs lokális változás – a working tree tiszta.');
+    else dv.clear(t('Nincs lokális változás – a working tree tiszta.'));
   }
 }
 
@@ -490,9 +503,9 @@ function selectChange(r, list, f, silent) {
   const mode = list === 'conflicted' ? 'conflict' : list === 'staged' ? 'staged' : untracked ? 'untracked' : 'unstaged';
   const extra = [];
   if (list === 'conflicted') {
-    extra.push(h('button.btn.sm', { on: { click: () => resolve(f.path, 'ours') } }, 'Saját (ours)'));
-    extra.push(h('button.btn.sm', { on: { click: () => resolve(f.path, 'theirs') } }, 'Másik (theirs)'));
-    extra.push(h('button.btn.sm.primary', { on: { click: () => resolve(f.path, 'mark') } }, 'Feloldva'));
+    extra.push(h('button.btn.sm', { on: { click: () => resolve(f.path, 'ours') } }, t('Saját (ours)')));
+    extra.push(h('button.btn.sm', { on: { click: () => resolve(f.path, 'theirs') } }, t('Másik (theirs)')));
+    extra.push(h('button.btn.sm.primary', { on: { click: () => resolve(f.path, 'mark') } }, t('Feloldva')));
   }
   dv.show({
     path: f.path,
@@ -501,7 +514,7 @@ function selectChange(r, list, f, silent) {
     actions: list === 'unstaged' && !untracked ? 'stage' : list === 'staged' ? 'unstage' : null,
     load: (context, ignoreWs) => invoke('diff', { repo: r.path, req: { mode, path: f.path, old_path: list === 'staged' ? f.old_path : null, context, ignore_ws: ignoreWs } }),
     apply: async (patch, { act, cached, reverse }) => {
-      if (act === 'discard' && !(await confirmDlg('Elvetés', 'A kijelölt változások véglegesen elvesznek. Folytatod?', 'Elvetés', true))) return;
+      if (act === 'discard' && !(await confirmDlg(t('Elvetés'), t('A kijelölt változások véglegesen elvesznek. Folytatod?'), t('Elvetés'), true))) return;
       await invoke('apply_patch', { repo: r.path, patch, cached, reverse });
       await refreshStatus(r);
       renderAll(true);
@@ -511,7 +524,7 @@ function selectChange(r, list, f, silent) {
       new: () => invoke('file_content', { repo: r.path, rev: list === 'staged' ? ':' : '', path: f.path }),
     },
     extra,
-    onAi: (text) => aiPanel(`AI elemzés – ${basename(f.path)}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
+    onAi: (text) => aiPanel(t('AI elemzés – {0}', basename(f.path)), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
   });
 }
 
@@ -529,7 +542,7 @@ function renderContentListsOnly(r) {
 function commitBox(r) {
   const st = r.status;
   const ta = h('textarea.inp', {
-    placeholder: 'Commit üzenet (első sor: összefoglaló)\n\nCtrl+Enter = commit', spellcheck: 'true', value: r.commitMsg,
+    placeholder: t('Commit üzenet (első sor: összefoglaló)\n\nCtrl+Enter = commit'), spellcheck: 'true', value: r.commitMsg,
     on: {
       input: (e) => { r.commitMsg = e.target.value; updHint(); },
       keydown: (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); doCommit(r); } },
@@ -548,40 +561,40 @@ function commitBox(r) {
       try { r.commitMsg = await invoke('head_message', { repo: r.path }); ta.value = r.commitMsg; updHint(); } catch {}
     }
   } } });
-  const aiBtn = h('button.btn.ai', { title: 'Commit üzenet generálása a staged diff alapján', disabled: !st.staged.length || null, on: { click: async () => {
+  const aiBtn = h('button.btn.ai', { title: t('Commit üzenet generálása a staged diff alapján'), disabled: !st.staged.length || null, on: { click: async () => {
     aiBtn.disabled = true;
     const old = aiBtn.innerHTML;
-    aiBtn.replaceChildren(icon('refresh', 'spin'), 'Generálás…');
+    aiBtn.replaceChildren(icon('refresh', 'spin'), t('Generálás…'));
     try {
       const res = await invoke('ai_commit_message', { repo: r.path });
       r.commitMsg = res.text;
       ta.value = res.text;
       updHint();
-      if (res.truncated) toast('A diff nagyon nagy volt, csak az eleje került az AI-hoz.', 'info', 6000);
+      if (res.truncated) toast(t('A diff nagyon nagy volt, csak az eleje került az AI-hoz.'), 'info', 6000);
     } catch (e) { toast(e, 'err'); }
     aiBtn.innerHTML = old;
     aiBtn.disabled = false;
-  } } }, icon('sparkle'), 'AI üzenet');
+  } } }, icon('sparkle'), t('AI üzenet'));
   const n = st.staged.length;
   return h('div.commit-box',
     ta,
     h('div.row', h('label.chk', amend, 'Amend'), hint, h('span.grow'), aiBtn,
       h('button.btn.primary', { disabled: (!n && !r.amend && st.operation !== 'merge') || null, on: { click: () => doCommit(r) } }, icon('check'), n ? `Commit (${n})` : 'Commit')),
-    !n && st.unstaged.length ? h('div.hint', 'Nincs staged fájl. Dupla kattintás vagy a + gomb egy fájlon stage-eli.') : null);
+    !n && st.unstaged.length ? h('div.hint', t('Nincs staged fájl. Dupla kattintás vagy a + gomb egy fájlon stage-eli.')) : null);
 }
 
 async function doCommit(r) {
   const msg = r.commitMsg.trim();
-  if (!msg) { toast('Írj commit üzenetet (vagy kérj egyet az AI-tól).', 'err'); return; }
-  if (!r.status.staged.length && !r.amend && r.status.operation !== 'merge') { toast('Nincs staged változás.', 'err'); return; }
+  if (!msg) { toast(t('Írj commit üzenetet (vagy kérj egyet az AI-tól).'), 'err'); return; }
+  if (!r.status.staged.length && !r.amend && r.status.operation !== 'merge') { toast(t('Nincs staged változás.'), 'err'); return; }
   setBusy(true, 'Commit…');
   try {
     const out = await invoke('commit', { repo: r.path, message: msg, amend: r.amend, signoff: false, noVerify: false });
-    toast(out.trim().split('\n')[0] || 'Commit kész', 'ok');
+    toast(out.trim().split('\n')[0] || t('Commit kész'), 'ok');
     r.commitMsg = '';
     r.amend = false;
   } catch (e) {
-    toast('Commit sikertelen:\n' + e, 'err');
+    toast(t('Commit sikertelen:\n') + e, 'err');
   } finally {
     setBusy(false);
     await refreshAll(r);
@@ -609,8 +622,8 @@ async function unstagePaths(paths) {
 async function discardFiles(files) {
   const r = cur();
   if (!files.length) return;
-  const names = files.map((f) => f.path).slice(0, 12).join('\n') + (files.length > 12 ? `\n… és még ${files.length - 12}` : '');
-  if (!(await confirmDlg('Változások elvetése', `Ezek a változások véglegesen elvesznek:\n\n${names}`, 'Elvetés', true))) return;
+  const names = files.map((f) => f.path).slice(0, 12).join('\n') + (files.length > 12 ? t('\n… és még {0}', files.length - 12) : '');
+  if (!(await confirmDlg(t('Változások elvetése'), t('Ezek a változások véglegesen elvesznek:\n\n{0}', names), t('Elvetés'), true))) return;
   const tracked = files.filter((f) => f.status !== '?').map((f) => f.path);
   const untracked = files.filter((f) => f.status === '?').map((f) => f.path);
   try { await invoke('discard', { repo: r.path, paths: tracked, untracked }); } catch (e) { toast(e, 'err'); }
@@ -619,7 +632,7 @@ async function discardFiles(files) {
 }
 async function resolve(path, side) {
   const r = cur();
-  try { await invoke('resolve_conflict', { repo: r.path, path, side }); toast(`Feloldva: ${path}`, 'ok'); } catch (e) { toast(e, 'err'); }
+  try { await invoke('resolve_conflict', { repo: r.path, path, side }); toast(t('Feloldva: {0}', path), 'ok'); } catch (e) { toast(e, 'err'); }
   await refreshStatus(r);
   if (!r.status.conflicted.length && r.status.operation === 'merge' && !r.commitMsg) {
     try { r.commitMsg = await invoke('prepared_message', { repo: r.path }); } catch {}
@@ -634,21 +647,21 @@ function fileMenu(e, r, list, f) {
   contextMenu(e, [
     list === 'unstaged' ? { label: multi.length > 1 ? `Stage (${multi.length})` : 'Stage', icon: 'plus', action: () => stagePaths(multi) } : null,
     list === 'staged' ? { label: multi.length > 1 ? `Unstage (${multi.length})` : 'Unstage', icon: 'minus', action: () => unstagePaths(multi) } : null,
-    list === 'unstaged' ? { label: 'Változások elvetése…', icon: 'undo', danger: true, action: () => discardFiles(files) } : null,
-    list === 'conflicted' ? { label: 'Saját verzió (ours)', icon: 'check', action: () => resolve(f.path, 'ours') } : null,
-    list === 'conflicted' ? { label: 'Másik verzió (theirs)', icon: 'check', action: () => resolve(f.path, 'theirs') } : null,
-    list === 'conflicted' ? { label: 'Megjelölés feloldottként', icon: 'check', action: () => resolve(f.path, 'mark') } : null,
+    list === 'unstaged' ? { label: t('Változások elvetése…'), icon: 'undo', danger: true, action: () => discardFiles(files) } : null,
+    list === 'conflicted' ? { label: t('Saját verzió (ours)'), icon: 'check', action: () => resolve(f.path, 'ours') } : null,
+    list === 'conflicted' ? { label: t('Másik verzió (theirs)'), icon: 'check', action: () => resolve(f.path, 'theirs') } : null,
+    list === 'conflicted' ? { label: t('Megjelölés feloldottként'), icon: 'check', action: () => resolve(f.path, 'mark') } : null,
     '-',
-    { label: 'Megnyitás', icon: 'file', action: () => invoke('open_file', { path: abs }) },
-    { label: 'Megjelenítés Intézőben', icon: 'folder', action: () => invoke('reveal_in_explorer', { path: abs }) },
-    { label: 'Útvonal másolása', icon: 'copy', action: () => copy(f.path) },
+    { label: t('Megnyitás'), icon: 'file', action: () => invoke('open_file', { path: abs }) },
+    { label: t('Megjelenítés Intézőben'), icon: 'folder', action: () => invoke('reveal_in_explorer', { path: abs }) },
+    { label: t('Útvonal másolása'), icon: 'copy', action: () => copy(f.path) },
     '-',
-    f.status !== '?' ? { label: 'Fájl előzmények', icon: 'history', action: () => fileHistory(f.path) } : null,
+    f.status !== '?' ? { label: t('Fájl előzmények'), icon: 'history', action: () => fileHistory(f.path) } : null,
     f.status !== '?' && f.status !== 'A' ? { label: 'Blame', icon: 'blame', action: () => showBlame(f.path, '') } : null,
-    { label: 'AI elemzés (a teljes változás)', icon: 'sparkle', action: () => aiPanel('AI elemzés – lokális változások', (q) => invoke('ai_analyze', { repo: r.path, req: { kind: list === 'staged' ? 'staged' : 'working', question: q } })) },
+    { label: t('AI elemzés (a teljes változás)'), icon: 'sparkle', action: () => aiPanel(t('AI elemzés – lokális változások'), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: list === 'staged' ? 'staged' : 'working', question: q } })) },
     f.status === '?' ? '-' : null,
-    f.status === '?' ? { label: '.gitignore-ba: ' + f.path, icon: 'eye', action: () => ignore(f.path) } : null,
-    f.status === '?' && f.path.includes('.') ? { label: '.gitignore-ba: *' + f.path.slice(f.path.lastIndexOf('.')), icon: 'eye', action: () => ignore('*' + f.path.slice(f.path.lastIndexOf('.'))) } : null,
+    f.status === '?' ? { label: t('.gitignore-ba: {0}', f.path), icon: 'eye', action: () => ignore(f.path) } : null,
+    f.status === '?' && f.path.includes('.') ? { label: t('.gitignore-ba: {0}', '*' + f.path.slice(f.path.lastIndexOf('.'))), icon: 'eye', action: () => ignore('*' + f.path.slice(f.path.lastIndexOf('.'))) } : null,
   ]);
 }
 
@@ -664,26 +677,26 @@ let logScrollTop = 0;
 function renderHistory(el, r, keep) {
   const dv = diffView();
   const searchInp = h('input.inp', {
-    placeholder: 'Keresés (Enter)…', value: r.search,
+    placeholder: t('Keresés (Enter)…'), value: r.search,
     on: { keydown: (e) => { if (e.key === 'Enter') runSearch(r, e.target.value); if (e.key === 'Escape') { e.target.value = ''; runSearch(r, ''); } } },
   });
   const modeSel = h('select.inp', { style: { width: 'auto' }, on: { change: (e) => { r.searchMode = e.target.value; if (r.search) runSearch(r, r.search); } } },
-    [['message', 'Üzenet / hash'], ['author', 'Szerző'], ['content', 'Tartalom (-S)'], ['path', 'Fájl útvonal']].map(([v, l]) => h('option', { value: v }, l)));
+    [['message', t('Üzenet / hash')], ['author', t('Szerző')], ['content', t('Tartalom (-S)')], ['path', t('Fájl útvonal')]].map(([v, l]) => h('option', { value: v }, l)));
   modeSel.value = r.searchMode;
-  const title = r.logPath ? `Fájl előzmények: ${r.logPath}` : r.logRev ? `Ág: ${r.logRev}` : 'Összes ág';
+  const title = r.logPath ? t('Fájl előzmények: {0}', r.logPath) : r.logRev ? t('Ág: {0}', r.logRev) : t('Összes ág');
   const head = h('div.log-head',
     h('b', title),
-    r.logPath || r.logRev ? h('button.btn.sm', { on: { click: () => { r.logPath = ''; r.logRev = ''; setView('history', true); } } }, 'Összes ág') : null,
-    !r.logPath ? h('button.btn.sm', { title: 'Csak az aktuális ág', on: { click: () => { r.logRev = r.logRev ? '' : 'HEAD'; setView('history', true); } } }, r.logRev ? 'Minden ág' : 'Csak HEAD') : null,
+    r.logPath || r.logRev ? h('button.btn.sm', { on: { click: () => { r.logPath = ''; r.logRev = ''; setView('history', true); } } }, t('Összes ág')) : null,
+    !r.logPath ? h('button.btn.sm', { title: t('Csak az aktuális ág'), on: { click: () => { r.logRev = r.logRev ? '' : 'HEAD'; setView('history', true); } } }, r.logRev ? t('Minden ág') : t('Csak HEAD')) : null,
     h('span', { style: { flex: 1 } }),
-    r.matches ? h('span.sub', { style: { color: 'var(--text-dim)', fontSize: '12px' } }, `${r.matches.size} találat`) : null,
-    r.matches ? h('button.icon-btn', { title: 'Előző találat', on: { click: () => jumpMatch(r, -1) } }, icon('up')) : null,
-    r.matches ? h('button.icon-btn', { title: 'Következő találat', on: { click: () => jumpMatch(r, 1) } }, icon('down')) : null,
+    r.matches ? h('span.sub', { style: { color: 'var(--text-dim)', fontSize: '12px' } }, t('{0} találat', r.matches.size)) : null,
+    r.matches ? h('button.icon-btn', { title: t('Előző találat'), on: { click: () => jumpMatch(r, -1) } }, icon('up')) : null,
+    r.matches ? h('button.icon-btn', { title: t('Következő találat'), on: { click: () => jumpMatch(r, 1) } }, icon('down')) : null,
     modeSel, searchInp,
-    h('button.icon-btn', { title: 'Frissítés (F5)', on: { click: () => refreshAll(r) } }, icon('refresh')));
+    h('button.icon-btn', { title: t('Frissítés (F5)'), on: { click: () => refreshAll(r) } }, icon('refresh')));
   const gw = graphWidth(r.commits);
-  const cols = h('div.log-cols', h('span', { style: { width: gw + 'px', paddingLeft: '6px' } }, 'Gráf'), h('span', { style: { flex: 1 } }, 'Leírás'),
-    h('span', { style: { width: '150px' } }, 'Szerző'), h('span', { style: { width: '74px' } }, 'Hash'), h('span', { style: { width: '130px', textAlign: 'right', paddingRight: '10px' } }, 'Dátum'));
+  const cols = h('div.log-cols', h('span', { style: { width: gw + 'px', paddingLeft: '6px' } }, t('Gráf')), h('span', { style: { flex: 1 } }, t('Leírás')),
+    h('span', { style: { width: '150px' } }, t('Szerző')), h('span', { style: { width: '74px' } }, 'Hash'), h('span', { style: { width: '130px', textAlign: 'right', paddingRight: '10px' } }, t('Dátum')));
   const scroll = h('div.log-scroll', { tabindex: 0 });
   const inner = h('div.log-inner');
   scroll.append(inner);
@@ -744,7 +757,7 @@ function renderHistory(el, r, keep) {
   } else if (r.commits.length) {
     selectCommit(r, r.commits[0].hash, true);
   } else {
-    detailsEl.replaceChildren(h('div.empty', icon('history'), 'Még nincs commit ebben a repository-ban.'));
+    detailsEl.replaceChildren(h('div.empty', icon('history'), t('Még nincs commit ebben a repository-ban.')));
     dv.clear('');
   }
 }
@@ -768,9 +781,9 @@ function refLabels(c, r) {
       out += `<span class="rl tag" title="tag">${esc(ref.slice(5))}</span>`;
     } else if (remotes.some((p) => ref.startsWith(p))) {
       if (ref.endsWith('/HEAD')) continue;
-      out += `<span class="rl remote" title="remote ág">${esc(ref)}</span>`;
+      out += `<span class="rl remote" title="${t('remote ág')}">${esc(ref)}</span>`;
     } else if (ref !== 'refs/stash') {
-      out += `<span class="rl local" title="lokális ág">${esc(ref)}</span>`;
+      out += `<span class="rl local" title="${t('lokális ág')}">${esc(ref)}</span>`;
     }
   }
   return out;
@@ -781,7 +794,7 @@ function rowHtml(c, i, gw, headHash, r) {
   if (c.wip) {
     const st = r.status;
     const n = st.staged.length + st.unstaged.length + st.conflicted.length;
-    return `<div class="crow wip" data-i="${i}" style="top:${y}px"><span class="g" style="width:${gw}px;display:flex;align-items:center;padding-left:6px;color:var(--text-dim)">◌</span><span class="subj"><span class="rl local">Lokális változások</span><span class="t">${n} fájl nincs commitolva</span></span><span class="au"></span><span class="hs"></span><span class="dt"></span></div>`;
+    return `<div class="crow wip" data-i="${i}" style="top:${y}px"><span class="g" style="width:${gw}px;display:flex;align-items:center;padding-left:6px;color:var(--text-dim)">◌</span><span class="subj"><span class="rl local">${esc(t('Lokális változások'))}</span><span class="t">${esc(t('{0} fájl nincs commitolva', n))}</span></span><span class="au"></span><span class="hs"></span><span class="dt"></span></div>`;
   }
   const sel = c.hash === r.selCommit ? ' sel' : '';
   const match = r.matches ? (r.matches.has(c.hash) ? ' match' : ' dim') : '';
@@ -791,13 +804,13 @@ function rowHtml(c, i, gw, headHash, r) {
 async function runSearch(r, q) {
   r.search = q;
   if (!q.trim()) { r.matches = null; renderContent(true); return; }
-  setBusy(true, 'Keresés…');
+  setBusy(true, t('Keresés…'));
   try {
     const hashes = await invoke('search_commits', { repo: r.path, query: q, mode: r.searchMode });
     r.matches = new Set(hashes);
     renderContent(true);
     if (hashes.length) jumpMatch(r, 1, true);
-    else toast('Nincs találat.');
+    else toast(t('Nincs találat.'));
   } catch (e) { toast(e, 'err'); }
   finally { setBusy(false); }
 }
@@ -813,7 +826,7 @@ function jumpMatch(r, dir, first) {
   if (rows[i]?.hash && r.matches.has(rows[i].hash)) {
     selectCommit(r, rows[i].hash);
     if (r._scroll) { r._scroll.scrollTop = Math.max(0, i * ROW_H - r._scroll.clientHeight / 2); r._draw(); }
-  } else if (r.matches.size) toast('A találatok a betöltött commitokon kívül esnek (növeld a log limitet a beállításokban).');
+  } else if (r.matches.size) toast(t('A találatok a betöltött commitokon kívül esnek (növeld a log limitet a beállításokban).'));
 }
 
 function showRefInHistory(hash, name) {
@@ -822,7 +835,7 @@ function showRefInHistory(hash, name) {
   const i = (r._rows || []).findIndex((x) => x.hash === hash);
   selectCommit(r, hash);
   if (i >= 0 && r._scroll) { r._scroll.scrollTop = Math.max(0, i * ROW_H - r._scroll.clientHeight / 3); r._draw(); }
-  else if (i < 0) toast(`${name}: a commit nincs a betöltött listában.`);
+  else if (i < 0) toast(t('{0}: a commit nincs a betöltött listában.', name));
   renderSidebar();
 }
 
@@ -832,7 +845,7 @@ async function selectCommit(r, hash, silent) {
   const detailsEl = document.querySelector('.details');
   if (!detailsEl) return;
   if (!silent) r._draw && r._draw();
-  detailsEl.replaceChildren(h('div.empty', 'Betöltés…'));
+  detailsEl.replaceChildren(h('div.empty', t('Betöltés…')));
   try {
     const d = await invoke('commit_details', { repo: r.path, hash });
     if (r.selCommit !== hash) return;
@@ -853,19 +866,19 @@ function renderDetails(el, r, keep) {
     h('div.author-line', avatar(d.author, d.author_email), h('div', h('div.who', d.author, ' ', h('span', { style: { color: 'var(--text-dim)', fontWeight: 400 } }, `<${d.author_email}>`)), h('div.when', fmtDate(d.author_time, true) + ' · ' + relTime(d.author_time)))),
     msg,
     h('table',
-      h('tr', h('td', 'Commit'), h('td.mono', d.hash, ' ', h('a', { title: 'Másolás', on: { click: () => copy(d.hash) } }, '⧉'))),
-      h('tr', h('td', 'Szülők'), h('td.mono', d.parents.length ? d.parents.flatMap((p, i) => [i ? ', ' : '', link(p)]) : '(gyökér commit)')),
+      h('tr', h('td', 'Commit'), h('td.mono', d.hash, ' ', h('a', { title: t('Másolás'), on: { click: () => copy(d.hash) } }, '⧉'))),
+      h('tr', h('td', t('Szülők')), h('td.mono', d.parents.length ? d.parents.flatMap((p, i) => [i ? ', ' : '', link(p)]) : t('(gyökér commit)'))),
       d.committer !== d.author || d.committer_time !== d.author_time ? h('tr', h('td', 'Committer'), h('td', `${d.committer} · ${fmtDate(d.committer_time, true)}`)) : null,
-      d.refs.length ? h('tr', h('td', 'Refek'), h('td', d.refs.join(', '))) : null),
+      d.refs.length ? h('tr', h('td', t('Refek')), h('td', d.refs.join(', '))) : null),
     h('div', { style: { marginTop: '8px', display: 'flex', gap: '6px' } },
-      h('button.btn.sm.ai', { on: { click: () => aiCommit(r, d.hash) } }, icon('sparkle'), 'AI magyarázat'),
-      h('button.btn.sm', { on: { click: () => { r.compare = { from: d.parents[0] || '', to: d.hash, mergeBase: false, result: null }; setView('compare'); runCompare(r); } } }, icon('compare'), 'Összehasonlítás')),
+      h('button.btn.sm.ai', { on: { click: () => aiCommit(r, d.hash) } }, icon('sparkle'), t('AI magyarázat')),
+      h('button.btn.sm', { on: { click: () => { r.compare = { from: d.parents[0] || '', to: d.hash, mergeBase: false, result: null }; setView('compare'); runCompare(r); } } }, icon('compare'), t('Összehasonlítás'))),
   );
   const files = h('div', d.files.map((f) => fileRow(r, 'commit', f, (x) => selectCommitFile(r, d, x))));
-  el.replaceChildren(h('div.pane-h', 'Commit részletek', h('span.sub', `${d.files.length} fájl`)), h('div.details-body', meta, files));
+  el.replaceChildren(h('div.pane-h', t('Commit részletek'), h('span.sub', t('{0} fájl', d.files.length))), h('div.details-body', meta, files));
   const sel = (keep && r.selFile?.list === 'commit' && d.files.find((f) => f.path === r.selFile.path)) || d.files[0];
   if (sel) { if (!(keep && dv._key === `${d.hash}|${sel.path}`)) selectCommitFile(r, d, sel); }
-  else dv.clear('A commit nem tartalmaz fájl változást.');
+  else dv.clear(t('A commit nem tartalmaz fájl változást.'));
 }
 
 function selectCommitFile(r, d, f) {
@@ -881,10 +894,10 @@ function selectCommitFile(r, d, f) {
       new: () => (f.status === 'D' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: d.hash, path: f.path })),
     },
     extra: [
-      h('button.btn.sm', { title: 'Fájl előzmények', on: { click: () => fileHistory(f.path) } }, icon('history')),
-      f.status !== 'D' ? h('button.btn.sm', { title: 'Blame ennél a commitnál', on: { click: () => showBlame(f.path, d.hash) } }, icon('blame')) : null,
+      h('button.btn.sm', { title: t('Fájl előzmények'), on: { click: () => fileHistory(f.path) } }, icon('history')),
+      f.status !== 'D' ? h('button.btn.sm', { title: t('Blame ennél a commitnál'), on: { click: () => showBlame(f.path, d.hash) } }, icon('blame')) : null,
     ],
-    onAi: (text) => aiPanel(`AI elemzés – ${basename(f.path)} @ ${short(d.hash)}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
+    onAi: (text) => aiPanel(t('AI elemzés – {0} @ {1}', basename(f.path), short(d.hash)), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
   });
 }
 
@@ -910,7 +923,7 @@ async function showBlame(path, rev) {
   dv.opts = null;
   dv._key = null;
   dv.el.replaceChildren(h('div.diff-toolbar', h('span.path', `Blame: ${path}`), rev ? h('span.sub', ` @ ${short(rev)}`) : null, h('span.grow'),
-    h('button.btn.sm', { on: { click: () => { r.blame = null; renderContent(); } } }, 'Bezárás')), h('div.diff-body', h('div.diff-msg', 'Betöltés…')));
+    h('button.btn.sm', { on: { click: () => { r.blame = null; renderContent(); } } }, t('Bezárás'))), h('div.diff-body', h('div.diff-msg', t('Betöltés…'))));
   try {
     const lines = await invoke('blame', { repo: r.path, path, rev: rev || null });
     dv.el.replaceChild(h('div.diff-body', renderBlame(lines, (hash) => showRefInHistory(hash, short(hash)))), dv.el.lastChild);
@@ -925,44 +938,44 @@ function renderCompare(el, r, keep) {
   const c = r.compare;
   const refNames = () => {
     const x = r.refs || { local: [], remote: [], tags: [] };
-    return [...x.local.map((b) => b.name), ...x.remote.map((b) => b.name), ...x.tags.map((t) => t.name), 'HEAD'];
+    return [...x.local.map((b) => b.name), ...x.remote.map((b) => b.name), ...x.tags.map((tg) => tg.name), 'HEAD'];
   };
   const dl = h('datalist#refs-dl', refNames().map((n) => h('option', { value: n })));
-  const from = h('input.inp', { list: 'refs-dl', placeholder: 'Honnan (pl. main)', value: c.from, on: { input: (e) => (c.from = e.target.value.trim()) } });
-  const to = h('input.inp', { list: 'refs-dl', placeholder: 'Hová (üres = working tree)', value: c.to, on: { input: (e) => (c.to = e.target.value.trim()) } });
+  const from = h('input.inp', { list: 'refs-dl', placeholder: t('Honnan (pl. main)'), value: c.from, on: { input: (e) => (c.from = e.target.value.trim()) } });
+  const to = h('input.inp', { list: 'refs-dl', placeholder: t('Hová (üres = working tree)'), value: c.to, on: { input: (e) => (c.to = e.target.value.trim()) } });
   const mb = h('input', { type: 'checkbox', checked: c.mergeBase, on: { change: (e) => (c.mergeBase = e.target.checked) } });
   const go = (e) => { if (e.key === 'Enter') runCompare(r); };
   from.addEventListener('keydown', go); to.addEventListener('keydown', go);
-  const bar = h('div.compare-bar', dl, h('b', 'Összehasonlítás'), from,
-    h('button.icon-btn', { title: 'Csere', on: { click: () => { [c.from, c.to] = [c.to, c.from]; renderContent(); } } }, '⇄'), to,
-    h('label.chk', { title: 'A "Honnan" helyett a két revízió közös ősét (merge-base) használja – azt mutatja, mit hozna be a "Hová" ág' }, mb, 'Merge-base (A...B)'),
-    h('button.btn.primary', { on: { click: () => runCompare(r) } }, icon('compare'), 'Összehasonlítás'),
-    h('button.btn.ai', { disabled: !c.result || null, on: { click: () => aiCompare(r) } }, icon('sparkle'), 'AI összehasonlítás'));
+  const bar = h('div.compare-bar', dl, h('b', t('Összehasonlítás')), from,
+    h('button.icon-btn', { title: t('Csere'), on: { click: () => { [c.from, c.to] = [c.to, c.from]; renderContent(); } } }, '⇄'), to,
+    h('label.chk', { title: t('A "Honnan" helyett a két revízió közös ősét (merge-base) használja – azt mutatja, mit hozna be a "Hová" ág') }, mb, t('Merge-base (A...B)')),
+    h('button.btn.primary', { on: { click: () => runCompare(r) } }, icon('compare'), t('Összehasonlítás')),
+    h('button.btn.ai', { disabled: !c.result || null, on: { click: () => aiCompare(r) } }, icon('sparkle'), t('AI összehasonlítás')));
   const leftBody = h('div.details-body');
-  const left = h('div.details', h('div.pane-h', 'Változott fájlok', c.result ? h('span.sub', c.result.files.length) : null), leftBody);
+  const left = h('div.details', h('div.pane-h', t('Változott fájlok'), c.result ? h('span.sub', c.result.files.length) : null), leftBody);
   const vs = h('div.splitter-v');
   el.replaceChildren(h('div.history', bar, h('div.history-bottom', { style: { height: 'auto', flex: 1, borderTop: 0 } }, left, vs, h('div.changes-right', dv.el))));
   splitter(vs, left, { min: 220, max: 1200, key: 'gs.compareW' });
   if (!c.result) {
-    leftBody.replaceChildren(h('div.empty', icon('compare'), 'Válassz két revíziót (ág, tag, commit hash), majd nyomd meg az Összehasonlítás gombot.'));
+    leftBody.replaceChildren(h('div.empty', icon('compare'), t('Válassz két revíziót (ág, tag, commit hash), majd nyomd meg az Összehasonlítás gombot.')));
     dv.clear('');
     return;
   }
   const res = c.result;
   const summary = h('div.compare-summary',
-    h('div', `${res.from} → ${res.to || 'working tree'}: ${res.files.length} fájl`),
-    res.ahead.length ? h('details', h('summary', `${res.ahead.length} commit csak itt: ${res.to}`), h('ul', res.ahead.map((x) => h('li', x)))) : null,
-    res.behind.length ? h('details', h('summary', `${res.behind.length} commit csak itt: ${res.from}`), h('ul', res.behind.map((x) => h('li', x)))) : null);
+    h('div', t('{0} → {1}: {2} fájl', res.from, res.to || 'working tree', res.files.length)),
+    res.ahead.length ? h('details', h('summary', t('{0} commit csak itt: {1}', res.ahead.length, res.to)), h('ul', res.ahead.map((x) => h('li', x)))) : null,
+    res.behind.length ? h('details', h('summary', t('{0} commit csak itt: {1}', res.behind.length, res.from)), h('ul', res.behind.map((x) => h('li', x)))) : null);
   leftBody.replaceChildren(summary, ...res.files.map((f) => fileRow(r, 'compare', f, (x) => selectCompareFile(r, x))));
   const sel = (keep && r.selFile?.list === 'compare' && res.files.find((f) => f.path === r.selFile.path)) || res.files[0];
   if (sel) selectCompareFile(r, sel);
-  else dv.clear('Nincs különbség.');
+  else dv.clear(t('Nincs különbség.'));
 }
 
 async function runCompare(r) {
   const c = r.compare;
-  if (!c.from) { toast('Add meg a "Honnan" revíziót.', 'err'); return; }
-  setBusy(true, 'Összehasonlítás…');
+  if (!c.from) { toast(t('Add meg a "Honnan" revíziót.'), 'err'); return; }
+  setBusy(true, t('Összehasonlítás…'));
   try {
     c.result = await invoke('compare', { repo: r.path, from: c.from, to: c.to, mergeBase: c.mergeBase });
   } catch (e) { toast(e, 'err'); c.result = null; }
@@ -981,33 +994,33 @@ function selectCompareFile(r, f) {
       old: () => (f.status === 'A' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: res.base, path: f.old_path || f.path })),
       new: () => (f.status === 'D' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: res.to || '', path: f.path })),
     },
-    onAi: (text) => aiPanel(`AI – ${basename(f.path)}: ${res.from} → ${res.to || 'working tree'}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
+    onAi: (text) => aiPanel(t('AI – {0}: {1} → {2}', basename(f.path), res.from, res.to || 'working tree'), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
   });
 }
 
 function aiCompare(r) {
   const c = r.compare;
-  aiPanel(`AI összehasonlítás: ${c.from} → ${c.to || 'working tree'}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: c.from, to: c.to, merge_base: c.mergeBase, question: q } }));
+  aiPanel(t('AI összehasonlítás: {0} → {1}', c.from, c.to || 'working tree'), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: c.from, to: c.to, merge_base: c.mergeBase, question: q } }));
 }
 
 function aiCommit(r, hash) {
-  aiPanel(`AI magyarázat – ${short(hash)}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'commit', hash, question: q } }));
+  aiPanel(t('AI magyarázat – {0}', short(hash)), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'commit', hash, question: q } }));
 }
 
 // ───────────────────────── AI panel ─────────────────────────
 
 function aiPanel(title, run) {
   document.querySelector('.ai-panel')?.remove();
-  if (!S.settings.anthropic_api_key) {
-    toast('Az AI funkciókhoz add meg az Anthropic API kulcsot a Beállításokban.', 'err');
+  if (!aiKey()) {
+    toast(t('Az AI funkciókhoz add meg az API kulcsot a Beállításokban.'), 'err');
     settingsDlg();
     return;
   }
   const body = h('div.ai-body');
-  const q = h('input.inp', { placeholder: 'Kérdezz a diff-ről (pl. "Van benne biztonsági hiba?")…' });
+  const q = h('input.inp', { placeholder: t('Kérdezz a diff-ről (pl. "Van benne biztonsági hiba?")…') });
   const ask = async (question) => {
     if (question) body.append(h('div.ai-q', '❯ ' + question));
-    const wait = h('div.ai-thinking', icon('sparkle', 'spin'), 'Az AI elemzi a változásokat…');
+    const wait = h('div.ai-thinking', icon('sparkle', 'spin'), t('Az AI elemzi a változásokat…'));
     body.append(wait);
     body.scrollTop = body.scrollHeight;
     try {
@@ -1015,7 +1028,7 @@ function aiPanel(title, run) {
       wait.remove();
       const out = h('div', { html: markdown(res.text) });
       body.append(out);
-      if (res.truncated) body.append(h('div.ai-q', 'Megjegyzés: a diff túl nagy volt, csak az eleje került elemzésre.'));
+      if (res.truncated) body.append(h('div.ai-q', t('Megjegyzés: a diff túl nagy volt, csak az eleje került elemzésre.')));
       out.scrollIntoView({ block: 'start' });
     } catch (e) {
       wait.replaceWith(h('div', { style: { color: 'var(--danger)' } }, String(e)));
@@ -1023,10 +1036,10 @@ function aiPanel(title, run) {
   };
   const panel = h('div.ai-panel',
     h('div.pane-h', h('span.spark', icon('sparkle')), title, h('span.grow'),
-      h('button.icon-btn', { title: 'Szöveg másolása', on: { click: () => copy(body.innerText) } }, icon('copy')),
-      h('button.icon-btn', { title: 'Bezárás', on: { click: () => panel.remove() } }, icon('close'))),
+      h('button.icon-btn', { title: t('Szöveg másolása'), on: { click: () => copy(body.innerText) } }, icon('copy')),
+      h('button.icon-btn', { title: t('Bezárás'), on: { click: () => panel.remove() } }, icon('close'))),
     body,
-    h('div.ai-ask', q, h('button.btn.ai', { on: { click: () => { const v = q.value.trim(); if (v) { q.value = ''; ask(v); } } } }, 'Kérdés')));
+    h('div.ai-ask', q, h('button.btn.ai', { on: { click: () => { const v = q.value.trim(); if (v) { q.value = ''; ask(v); } } } }, t('Kérdés'))));
   q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && q.value.trim()) { const v = q.value.trim(); q.value = ''; ask(v); } });
   document.body.append(panel);
   ask(null);
@@ -1055,7 +1068,7 @@ function toggleConsole() {
   const out = h('div.console-out');
   const hist = [];
   let hi = -1;
-  const inp = h('input.inp', { placeholder: 'git parancs, pl. log --oneline -5   (a "git" előtag opcionális)', spellcheck: 'false' });
+  const inp = h('input.inp', { placeholder: t('git parancs, pl. log --oneline -5   (a "git" előtag opcionális)'), spellcheck: 'false' });
   inp.addEventListener('keydown', async (e) => {
     if (e.key === 'ArrowUp') { if (hist.length) { hi = Math.max(0, hi < 0 ? hist.length - 1 : hi - 1); inp.value = hist[hi]; } e.preventDefault(); return; }
     if (e.key === 'ArrowDown') { if (hi >= 0) { hi = Math.min(hist.length, hi + 1); inp.value = hist[hi] || ''; } e.preventDefault(); return; }
@@ -1068,8 +1081,8 @@ function toggleConsole() {
     await op('git ' + args.join(' '), args, { quiet: true });
     inp.focus();
   });
-  const c = h('div.console', h('div.pane-h', icon('console'), 'Git konzol', h('span.sub', r.path), h('span.grow'),
-    h('button.icon-btn', { title: 'Törlés', on: { click: () => { r._log = []; renderConsoleOut(out, r); } } }, icon('trash')),
+  const c = h('div.console', h('div.pane-h', icon('console'), t('Git konzol'), h('span.sub', r.path), h('span.grow'),
+    h('button.icon-btn', { title: t('Törlés'), on: { click: () => { r._log = []; renderConsoleOut(out, r); } } }, icon('trash')),
     h('button.icon-btn', { on: { click: () => c.remove() } }, icon('close'))), out, h('div.console-in', h('span.mono', 'git'), inp));
   document.body.append(c);
   renderConsoleOut(out, r);
@@ -1078,7 +1091,7 @@ function toggleConsole() {
 
 // ───────────────────────── menus ─────────────────────────
 
-const copy = (t) => navigator.clipboard.writeText(t).then(() => toast('Vágólapra másolva', 'ok', 1500));
+const copy = (txt) => navigator.clipboard.writeText(txt).then(() => toast(t('Vágólapra másolva'), 'ok', 1500));
 
 function localBranchMenu(e, b) {
   const r = cur();
@@ -1087,19 +1100,19 @@ function localBranchMenu(e, b) {
     { header: b.name },
     { label: 'Checkout', icon: 'check', disabled: b.current, action: () => checkout(b.name) },
     '-',
-    { label: `Merge "${b.name}" → "${head}"`, icon: 'merge', disabled: b.current || !head, action: () => mergeDlg(b.name) },
-    { label: `Rebase "${head}" erre: "${b.name}"`, icon: 'branch', disabled: b.current || !head, action: () => rebase(b.name) },
-    b.current ? { label: 'Pull', icon: 'pull', action: () => pullDlg() } : { label: 'Fast-forward az upstream-re', icon: 'pull', disabled: !b.upstream || !b.behind, action: () => op(`Fast-forward ${b.name}`, ['fetch', '.', `${b.upstream}:${b.name}`]) },
+    { label: t('Merge "{0}" → "{1}"', b.name, head), icon: 'merge', disabled: b.current || !head, action: () => mergeDlg(b.name) },
+    { label: t('Rebase "{0}" erre: "{1}"', head, b.name), icon: 'branch', disabled: b.current || !head, action: () => rebase(b.name) },
+    b.current ? { label: 'Pull', icon: 'pull', action: () => pullDlg() } : { label: t('Fast-forward az upstream-re'), icon: 'pull', disabled: !b.upstream || !b.behind, action: () => op(`Fast-forward ${b.name}`, ['fetch', '.', `${b.upstream}:${b.name}`]) },
     { label: 'Push', icon: 'push', action: () => pushDlg(b.name) },
     '-',
-    { label: 'Új ág innen…', icon: 'plus', action: () => newBranchDlg(b.name) },
-    { label: 'Átnevezés…', icon: 'changes', action: () => renameBranchDlg(b) },
-    { label: 'Upstream beállítása…', icon: 'cloud', action: () => upstreamDlg(b) },
-    { label: 'Összehasonlítás az aktuális ággal', icon: 'compare', disabled: b.current, action: () => { r.compare = { from: head, to: b.name, mergeBase: true, result: null }; setView('compare'); runCompare(r); } },
-    { label: 'AI: mit hoz be ez az ág?', icon: 'sparkle', disabled: b.current, action: () => aiPanel(`AI: ${head} ↔ ${b.name}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head, to: b.name, merge_base: true, question: q } })) },
-    { label: 'Név másolása', icon: 'copy', action: () => copy(b.name) },
+    { label: t('Új ág innen…'), icon: 'plus', action: () => newBranchDlg(b.name) },
+    { label: t('Átnevezés…'), icon: 'changes', action: () => renameBranchDlg(b) },
+    { label: t('Upstream beállítása…'), icon: 'cloud', action: () => upstreamDlg(b) },
+    { label: t('Összehasonlítás az aktuális ággal'), icon: 'compare', disabled: b.current, action: () => { r.compare = { from: head, to: b.name, mergeBase: true, result: null }; setView('compare'); runCompare(r); } },
+    { label: t('AI: mit hoz be ez az ág?'), icon: 'sparkle', disabled: b.current, action: () => aiPanel(t('AI: {0} ↔ {1}', head, b.name), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head, to: b.name, merge_base: true, question: q } })) },
+    { label: t('Név másolása'), icon: 'copy', action: () => copy(b.name) },
     '-',
-    { label: 'Törlés…', icon: 'trash', danger: true, disabled: b.current, action: () => deleteBranch(b) },
+    { label: t('Törlés…'), icon: 'trash', danger: true, disabled: b.current, action: () => deleteBranch(b) },
   ]);
 }
 
@@ -1109,33 +1122,33 @@ function remoteBranchMenu(e, b, remote) {
   const short_ = b.name.slice(remote.length + 1);
   contextMenu(e, [
     { header: b.name },
-    { label: `Checkout (lokális "${short_}" ág)`, icon: 'check', action: () => checkoutRemote(b.name) },
-    { label: `Merge "${b.name}" → "${head}"`, icon: 'merge', disabled: !head, action: () => mergeDlg(b.name) },
-    { label: `Rebase "${head}" erre: "${b.name}"`, icon: 'branch', disabled: !head, action: () => rebase(b.name) },
+    { label: t('Checkout (lokális "{0}" ág)', short_), icon: 'check', action: () => checkoutRemote(b.name) },
+    { label: t('Merge "{0}" → "{1}"', b.name, head), icon: 'merge', disabled: !head, action: () => mergeDlg(b.name) },
+    { label: t('Rebase "{0}" erre: "{1}"', head, b.name), icon: 'branch', disabled: !head, action: () => rebase(b.name) },
     '-',
-    { label: 'Új ág innen…', icon: 'plus', action: () => newBranchDlg(b.name) },
-    { label: 'Összehasonlítás az aktuális ággal', icon: 'compare', action: () => { r.compare = { from: head || 'HEAD', to: b.name, mergeBase: true, result: null }; setView('compare'); runCompare(r); } },
-    { label: 'AI: mit hoz be ez az ág?', icon: 'sparkle', action: () => aiPanel(`AI: ${head} ↔ ${b.name}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head || 'HEAD', to: b.name, merge_base: true, question: q } })) },
-    { label: 'Név másolása', icon: 'copy', action: () => copy(b.name) },
+    { label: t('Új ág innen…'), icon: 'plus', action: () => newBranchDlg(b.name) },
+    { label: t('Összehasonlítás az aktuális ággal'), icon: 'compare', action: () => { r.compare = { from: head || 'HEAD', to: b.name, mergeBase: true, result: null }; setView('compare'); runCompare(r); } },
+    { label: t('AI: mit hoz be ez az ág?'), icon: 'sparkle', action: () => aiPanel(t('AI: {0} ↔ {1}', head, b.name), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head || 'HEAD', to: b.name, merge_base: true, question: q } })) },
+    { label: t('Név másolása'), icon: 'copy', action: () => copy(b.name) },
     '-',
-    { label: 'Törlés a remote-on…', icon: 'trash', danger: true, action: async () => {
-      if (await confirmDlg('Remote ág törlése', `Törlöd a(z) "${short_}" ágat a(z) "${remote}" remote-on?`, 'Törlés', true)) op(`Remote ág törlése: ${b.name}`, ['push', remote, '--delete', short_]);
+    { label: t('Törlés a remote-on…'), icon: 'trash', danger: true, action: async () => {
+      if (await confirmDlg(t('Remote ág törlése'), t('Törlöd a(z) "{0}" ágat a(z) "{1}" remote-on?', short_, remote), t('Törlés'), true)) op(t('Remote ág törlése: {0}', b.name), ['push', remote, '--delete', short_]);
     } },
   ]);
 }
 
-function tagMenu(e, t) {
+function tagMenu(e, tag) {
   const r = cur();
   contextMenu(e, [
-    { header: t.name },
-    { label: 'Checkout (detached)', icon: 'check', action: () => checkout(t.name) },
-    { label: 'Új ág innen…', icon: 'plus', action: () => newBranchDlg(t.name) },
-    { label: 'Push tag…', icon: 'push', action: async () => { const rm = await pickRemote(); if (rm) op(`Push tag ${t.name}`, ['push', rm, `refs/tags/${t.name}`]); } },
-    { label: 'Összehasonlítás HEAD-del', icon: 'compare', action: () => { r.compare = { from: t.name, to: 'HEAD', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
-    { label: 'Név másolása', icon: 'copy', action: () => copy(t.name) },
+    { header: tag.name },
+    { label: 'Checkout (detached)', icon: 'check', action: () => checkout(tag.name) },
+    { label: t('Új ág innen…'), icon: 'plus', action: () => newBranchDlg(tag.name) },
+    { label: 'Push tag…', icon: 'push', action: async () => { const rm = await pickRemote(); if (rm) op(`Push tag ${tag.name}`, ['push', rm, `refs/tags/${tag.name}`]); } },
+    { label: t('Összehasonlítás HEAD-del'), icon: 'compare', action: () => { r.compare = { from: tag.name, to: 'HEAD', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
+    { label: t('Név másolása'), icon: 'copy', action: () => copy(tag.name) },
     '-',
-    { label: 'Törlés (lokális)…', icon: 'trash', danger: true, action: async () => { if (await confirmDlg('Tag törlése', `Törlöd a(z) "${t.name}" taget?`, 'Törlés', true)) op(`Tag törlése ${t.name}`, ['tag', '-d', t.name]); } },
-    { label: 'Törlés a remote-on…', icon: 'trash', danger: true, action: async () => { const rm = await pickRemote(); if (rm && await confirmDlg('Remote tag törlése', `Törlöd a(z) "${t.name}" taget a(z) "${rm}" remote-on?`, 'Törlés', true)) op(`Remote tag törlése ${t.name}`, ['push', rm, '--delete', `refs/tags/${t.name}`]); } },
+    { label: t('Törlés (lokális)…'), icon: 'trash', danger: true, action: async () => { if (await confirmDlg(t('Tag törlése'), t('Törlöd a(z) "{0}" taget?', tag.name), t('Törlés'), true)) op(t('Tag törlése {0}', tag.name), ['tag', '-d', tag.name]); } },
+    { label: t('Törlés a remote-on…'), icon: 'trash', danger: true, action: async () => { const rm = await pickRemote(); if (rm && await confirmDlg(t('Remote tag törlése'), t('Törlöd a(z) "{0}" taget a(z) "{1}" remote-on?', tag.name, rm), t('Törlés'), true)) op(t('Remote tag törlése {0}', tag.name), ['push', rm, '--delete', `refs/tags/${tag.name}`]); } },
   ]);
 }
 
@@ -1144,12 +1157,12 @@ function stashMenu(e, s) {
     { header: s.name },
     { label: 'Apply', icon: 'check', action: () => op(`Stash apply ${s.name}`, ['stash', 'apply', s.name]) },
     { label: 'Pop', icon: 'pop', action: () => op(`Stash pop ${s.name}`, ['stash', 'pop', s.name]) },
-    { label: 'Ág létrehozása a stash-ből…', icon: 'branch', action: async () => {
-      const v = await formDlg('Ág stash-ből', [{ name: 'name', label: 'Ág neve' }], 'Létrehozás');
+    { label: t('Ág létrehozása a stash-ből…'), icon: 'branch', action: async () => {
+      const v = await formDlg(t('Ág stash-ből'), [{ name: 'name', label: t('Ág neve') }], t('Létrehozás'));
       if (v?.name) op('Stash branch', ['stash', 'branch', v.name.trim(), s.name]);
     } },
     '-',
-    { label: 'Drop…', icon: 'trash', danger: true, action: async () => { if (await confirmDlg('Stash törlése', `Törlöd: ${s.name} (${s.message})?`, 'Törlés', true)) op(`Stash drop ${s.name}`, ['stash', 'drop', s.name]); } },
+    { label: 'Drop…', icon: 'trash', danger: true, action: async () => { if (await confirmDlg(t('Stash törlése'), t('Törlöd: {0} ({1})?', s.name, s.message), t('Törlés'), true)) op(`Stash drop ${s.name}`, ['stash', 'drop', s.name]); } },
   ]);
 }
 
@@ -1161,21 +1174,21 @@ function commitMenu(e, r, c) {
     ...branches.slice(0, 4).map((b) => ({ label: `Checkout "${b}"`, icon: 'check', action: () => (r.refs.remote.some((x) => x.name === b) ? checkoutRemote(b) : checkout(b)) })),
     { label: 'Checkout commit (detached HEAD)', icon: 'check', action: () => checkout(c.hash) },
     '-',
-    { label: 'Új ág innen…', icon: 'branch', action: () => newBranchDlg(c.hash) },
-    { label: 'Új tag innen…', icon: 'tag', action: () => tagDlg(c.hash) },
+    { label: t('Új ág innen…'), icon: 'branch', action: () => newBranchDlg(c.hash) },
+    { label: t('Új tag innen…'), icon: 'tag', action: () => tagDlg(c.hash) },
     '-',
-    { label: `Merge → "${head}"`, icon: 'merge', disabled: !head, action: () => mergeDlg(branches[0] || c.hash) },
-    { label: `Rebase "${head}" erre`, icon: 'branch', disabled: !head, action: () => rebase(c.hash) },
+    { label: t('Merge → "{0}"', head), icon: 'merge', disabled: !head, action: () => mergeDlg(branches[0] || c.hash) },
+    { label: t('Rebase "{0}" erre', head), icon: 'branch', disabled: !head, action: () => rebase(c.hash) },
     { label: 'Cherry-pick', icon: 'commit', action: () => op(`Cherry-pick ${short(c.hash)}`, ['cherry-pick', ...(c.parents.length > 1 ? ['-m', '1'] : []), c.hash]) },
     { label: 'Revert', icon: 'undo', action: () => op(`Revert ${short(c.hash)}`, ['revert', '--no-edit', ...(c.parents.length > 1 ? ['-m', '1'] : []), c.hash]) },
-    { label: `"${head || 'HEAD'}" reset ide…`, icon: 'undo', danger: true, action: () => resetDlg(c) },
+    { label: t('"{0}" reset ide…', head || 'HEAD'), icon: 'undo', danger: true, action: () => resetDlg(c) },
     '-',
-    { label: 'Összehasonlítás a working tree-vel', icon: 'compare', action: () => { r.compare = { from: c.hash, to: '', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
-    { label: 'Összehasonlítás HEAD-del', icon: 'compare', action: () => { r.compare = { from: c.hash, to: 'HEAD', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
-    { label: 'AI magyarázat', icon: 'sparkle', action: () => aiCommit(r, c.hash) },
+    { label: t('Összehasonlítás a working tree-vel'), icon: 'compare', action: () => { r.compare = { from: c.hash, to: '', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
+    { label: t('Összehasonlítás HEAD-del'), icon: 'compare', action: () => { r.compare = { from: c.hash, to: 'HEAD', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
+    { label: t('AI magyarázat'), icon: 'sparkle', action: () => aiCommit(r, c.hash) },
     '-',
-    { label: 'Hash másolása', icon: 'copy', action: () => copy(c.hash) },
-    { label: 'Üzenet másolása', icon: 'copy', action: () => copy(c.subject) },
+    { label: t('Hash másolása'), icon: 'copy', action: () => copy(c.hash) },
+    { label: t('Üzenet másolása'), icon: 'copy', action: () => copy(c.subject) },
   ]);
 }
 
@@ -1187,11 +1200,11 @@ async function checkout(ref) {
   if (dirty) {
     const choice = await modal({
       title: `Checkout: ${ref}`,
-      body: h('div.desc', 'Vannak nem commitolt változások. Mi legyen velük?'),
+      body: h('div.desc', t('Vannak nem commitolt változások. Mi legyen velük?')),
       buttons: [
-        { label: 'Mégse', value: null },
+        { label: t('Mégse'), value: null },
         { label: 'Stash → checkout → pop', value: 'stash' },
-        { label: 'Megtartás (próbáld)', value: 'keep', primary: true },
+        { label: t('Megtartás (próbáld)'), value: 'keep', primary: true },
       ],
     });
     if (!choice) return;
@@ -1211,7 +1224,7 @@ async function checkoutRemote(full) {
   if (r.refs.local.some((b) => b.name === name)) {
     const b = r.refs.local.find((x) => x.name === name);
     await checkout(name);
-    if (b.upstream === full && b.behind) toast(`"${name}" ${b.behind} commit-tal le van maradva – használd a Pull-t.`);
+    if (b.upstream === full && b.behind) toast(t('"{0}" {1} commit-tal le van maradva – használd a Pull-t.', name, b.behind));
     return;
   }
   await op(`Checkout ${full}`, ['checkout', '-b', name, '--track', full]);
@@ -1231,11 +1244,11 @@ async function pickRemote() {
 async function pullDlg() {
   const r = cur();
   const st = r.status;
-  if (!st.upstream && !(r.refs?.remotes || []).length) { toast('Nincs beállított remote.', 'err'); return; }
+  if (!st.upstream && !(r.refs?.remotes || []).length) { toast(t('Nincs beállított remote.'), 'err'); return; }
   const v = await formDlg('Pull', [
-    { name: 'mode', label: 'Mód', type: 'select', value: 'merge', options: [{ value: 'merge', label: 'Merge (alapértelmezett)' }, { value: 'rebase', label: 'Rebase' }, { value: 'ff', label: 'Csak fast-forward' }] },
-    { name: 'autostash', label: 'Lokális változások automatikus stash-elése (--autostash)', type: 'checkbox', value: true },
-  ], 'Pull', st.upstream ? `${st.branch} ← ${st.upstream}` : `A(z) "${st.branch}" ágnak nincs upstream-je.`);
+    { name: 'mode', label: t('Mód'), type: 'select', value: 'merge', options: [{ value: 'merge', label: t('Merge (alapértelmezett)') }, { value: 'rebase', label: 'Rebase' }, { value: 'ff', label: t('Csak fast-forward') }] },
+    { name: 'autostash', label: t('Lokális változások automatikus stash-elése (--autostash)'), type: 'checkbox', value: true },
+  ], 'Pull', st.upstream ? `${st.branch} ← ${st.upstream}` : t('A(z) "{0}" ágnak nincs upstream-je.', st.branch));
   if (!v) return;
   const args = ['pull', '--progress'];
   if (v.mode === 'rebase') args.push('--rebase'); else if (v.mode === 'ff') args.push('--ff-only'); else args.push('--no-rebase');
@@ -1246,19 +1259,19 @@ async function pullDlg() {
 async function pushDlg(branch) {
   const r = cur();
   const remotes = r.refs?.remotes || [];
-  if (!remotes.length) { toast('Nincs remote. Adj hozzá egyet a Remote-ok szekcióban.', 'err'); return; }
+  if (!remotes.length) { toast(t('Nincs remote. Adj hozzá egyet a Remote-ok szekcióban.'), 'err'); return; }
   const b = r.refs.local.find((x) => x.name === (branch || r.refs.head));
-  if (!b) { toast('Detached HEAD-ből nem lehet push-olni ágat. Hozz létre ágat.', 'err'); return; }
+  if (!b) { toast(t('Detached HEAD-ből nem lehet push-olni ágat. Hozz létre ágat.'), 'err'); return; }
   const upRemote = b.upstream ? b.upstream.split('/')[0] : remotes[0].name;
   const v = await formDlg('Push', [
     { name: 'remote', label: 'Remote', type: 'select', value: upRemote, options: remotes.map((x) => x.name) },
-    { name: 'target', label: 'Cél ág', value: b.upstream ? b.upstream.slice(upRemote.length + 1) : b.name },
-    { name: 'upstream', label: 'Upstream beállítása (-u)', type: 'checkbox', value: !b.upstream },
-    { name: 'tags', label: 'Tagek push-olása is (--follow-tags)', type: 'checkbox', value: false },
+    { name: 'target', label: t('Cél ág'), value: b.upstream ? b.upstream.slice(upRemote.length + 1) : b.name },
+    { name: 'upstream', label: t('Upstream beállítása (-u)'), type: 'checkbox', value: !b.upstream },
+    { name: 'tags', label: t('Tagek push-olása is (--follow-tags)'), type: 'checkbox', value: false },
     { name: 'force', label: 'Force push (--force-with-lease)', type: 'checkbox', value: false },
-  ], 'Push', `Ág: ${b.name}${b.ahead ? ` · ${b.ahead} commit vár push-ra` : ''}`);
+  ], 'Push', t('Ág: {0}', b.name) + (b.ahead ? t(' · {0} commit vár push-ra', b.ahead) : ''));
   if (!v) return;
-  if (v.force && !(await confirmDlg('Force push', 'A force push felülírhatja a remote ág történetét. Biztos?', 'Force push', true))) return;
+  if (v.force && !(await confirmDlg('Force push', t('A force push felülírhatja a remote ág történetét. Biztos?'), 'Force push', true))) return;
   const args = ['push', '--progress'];
   if (v.upstream) args.push('-u');
   if (v.tags) args.push('--follow-tags');
@@ -1269,40 +1282,40 @@ async function pushDlg(branch) {
 
 async function newBranchDlg(start) {
   const r = cur();
-  const v = await formDlg('Új ág', [
-    { name: 'name', label: 'Ág neve', placeholder: 'feature/uj-funkcio' },
-    { name: 'start', label: 'Kiindulópont', value: start || r.refs?.head || 'HEAD' },
-    { name: 'checkout', label: 'Checkout létrehozás után', type: 'checkbox', value: true },
-  ], 'Létrehozás');
+  const v = await formDlg(t('Új ág'), [
+    { name: 'name', label: t('Ág neve'), placeholder: 'feature/uj-funkcio' },
+    { name: 'start', label: t('Kiindulópont'), value: start || r.refs?.head || 'HEAD' },
+    { name: 'checkout', label: t('Checkout létrehozás után'), type: 'checkbox', value: true },
+  ], t('Létrehozás'));
   if (!v || !v.name.trim()) return;
   const name = v.name.trim().replace(/\s+/g, '-');
-  if (v.checkout) await op(`Új ág: ${name}`, ['checkout', '-b', name, v.start.trim() || 'HEAD']);
-  else await op(`Új ág: ${name}`, ['branch', name, v.start.trim() || 'HEAD']);
+  if (v.checkout) await op(t('Új ág: {0}', name), ['checkout', '-b', name, v.start.trim() || 'HEAD']);
+  else await op(t('Új ág: {0}', name), ['branch', name, v.start.trim() || 'HEAD']);
 }
 
 async function renameBranchDlg(b) {
-  const v = await formDlg('Ág átnevezése', [{ name: 'name', label: 'Új név', value: b.name }], 'Átnevezés');
-  if (v && v.name.trim() && v.name.trim() !== b.name) await op('Átnevezés', ['branch', '-m', b.name, v.name.trim()]);
+  const v = await formDlg(t('Ág átnevezése'), [{ name: 'name', label: t('Új név'), value: b.name }], t('Átnevezés'));
+  if (v && v.name.trim() && v.name.trim() !== b.name) await op(t('Átnevezés'), ['branch', '-m', b.name, v.name.trim()]);
 }
 
 async function upstreamDlg(b) {
   const r = cur();
-  const v = await formDlg('Upstream beállítása', [{ name: 'up', label: 'Upstream (pl. origin/main)', type: 'select', value: b.upstream, options: ['', ...r.refs.remote.map((x) => x.name)].map((x) => ({ value: x, label: x || '(nincs – upstream törlése)' })) }], 'Mentés');
+  const v = await formDlg(t('Upstream beállítása'), [{ name: 'up', label: t('Upstream (pl. origin/main)'), type: 'select', value: b.upstream, options: ['', ...r.refs.remote.map((x) => x.name)].map((x) => ({ value: x, label: x || t('(nincs – upstream törlése)') })) }], t('Mentés'));
   if (!v) return;
   if (v.up) await op('Upstream', ['branch', `--set-upstream-to=${v.up}`, b.name]);
-  else await op('Upstream törlése', ['branch', '--unset-upstream', b.name]);
+  else await op(t('Upstream törlése'), ['branch', '--unset-upstream', b.name]);
 }
 
 async function deleteBranch(b) {
-  const v = await formDlg('Ág törlése', [
-    { name: 'force', label: 'Törlés akkor is, ha nincs merge-elve (-D)', type: 'checkbox', value: false },
-    b.upstream ? { name: 'remote', label: `Remote ág törlése is (${b.upstream})`, type: 'checkbox', value: false } : null,
-  ].filter(Boolean), 'Törlés', `Törlöd a(z) "${b.name}" ágat?`);
+  const v = await formDlg(t('Ág törlése'), [
+    { name: 'force', label: t('Törlés akkor is, ha nincs merge-elve (-D)'), type: 'checkbox', value: false },
+    b.upstream ? { name: 'remote', label: t('Remote ág törlése is ({0})', b.upstream), type: 'checkbox', value: false } : null,
+  ].filter(Boolean), t('Törlés'), t('Törlöd a(z) "{0}" ágat?', b.name));
   if (!v) return;
-  const ok = await op(`Ág törlése: ${b.name}`, ['branch', v.force ? '-D' : '-d', b.name], { refresh: !v.remote });
+  const ok = await op(t('Ág törlése: {0}', b.name), ['branch', v.force ? '-D' : '-d', b.name], { refresh: !v.remote });
   if (ok != null && v.remote) {
     const [rm, ...rest] = b.upstream.split('/');
-    await op(`Remote ág törlése: ${b.upstream}`, ['push', rm, '--delete', rest.join('/')]);
+    await op(t('Remote ág törlése: {0}', b.upstream), ['push', rm, '--delete', rest.join('/')]);
   }
 }
 
@@ -1311,12 +1324,12 @@ async function mergeDlg(ref) {
   const head = r.refs?.head;
   if (!head) { toast('Detached HEAD-re nem lehet merge-elni.', 'err'); return; }
   const v = await formDlg(`Merge → ${head}`, [
-    { name: 'ref', label: 'Melyik ágat / commitot', value: ref || '', placeholder: 'pl. feature/x' },
-    { name: 'mode', label: 'Mód', type: 'select', value: 'default', options: [
-      { value: 'default', label: 'Alapértelmezett (fast-forward ha lehet)' },
-      { value: 'noff', label: 'Mindig merge commit (--no-ff)' },
-      { value: 'ff', label: 'Csak fast-forward (--ff-only)' },
-      { value: 'squash', label: 'Squash (--squash, commit utána)' }] },
+    { name: 'ref', label: t('Melyik ágat / commitot'), value: ref || '', placeholder: 'pl. feature/x' },
+    { name: 'mode', label: t('Mód'), type: 'select', value: 'default', options: [
+      { value: 'default', label: t('Alapértelmezett (fast-forward ha lehet)') },
+      { value: 'noff', label: t('Mindig merge commit (--no-ff)') },
+      { value: 'ff', label: t('Csak fast-forward (--ff-only)') },
+      { value: 'squash', label: t('Squash (--squash, commit utána)') }] },
   ], 'Merge');
   if (!v || !v.ref.trim()) return;
   const args = ['merge'];
@@ -1326,34 +1339,34 @@ async function mergeDlg(ref) {
   else args.push('--no-edit');
   args.push(v.ref.trim());
   await op(`Merge ${v.ref.trim()} → ${head}`, args);
-  if (cur().status?.conflicted.length) { toast('Konfliktusok keletkeztek – oldd fel őket a Lokális változások nézetben.', 'err'); setView('changes'); }
+  if (cur().status?.conflicted.length) { toast(t('Konfliktusok keletkeztek – oldd fel őket a Lokális változások nézetben.'), 'err'); setView('changes'); }
 }
 
 async function rebase(onto) {
   const r = cur();
-  if (!(await confirmDlg('Rebase', `A(z) "${r.refs.head}" ág commitjai újra lesznek játszva erre: "${onto}". Folytatod?`, 'Rebase'))) return;
+  if (!(await confirmDlg('Rebase', t('A(z) "{0}" ág commitjai újra lesznek játszva erre: "{1}". Folytatod?', r.refs.head, onto), 'Rebase'))) return;
   await op(`Rebase → ${onto}`, ['-c', 'core.editor=true', 'rebase', '--autostash', onto]);
   if (cur().status?.operation === 'rebase') setView('changes');
 }
 
 async function resetDlg(c) {
-  const v = await formDlg('Reset', [{ name: 'mode', label: 'Mód', type: 'select', value: 'mixed', options: [
-    { value: 'soft', label: 'Soft – a változások staged állapotban maradnak' },
-    { value: 'mixed', label: 'Mixed – a változások a working tree-ben maradnak' },
-    { value: 'hard', label: 'Hard – MINDEN lokális változás elvész!' }] }], 'Reset',
-  `A(z) "${cur().refs?.head || 'HEAD'}" erre a commitra áll: ${short(c.hash)} ${c.subject}`);
+  const v = await formDlg('Reset', [{ name: 'mode', label: t('Mód'), type: 'select', value: 'mixed', options: [
+    { value: 'soft', label: t('Soft – a változások staged állapotban maradnak') },
+    { value: 'mixed', label: t('Mixed – a változások a working tree-ben maradnak') },
+    { value: 'hard', label: t('Hard – MINDEN lokális változás elvész!') }] }], 'Reset',
+  t('A(z) "{0}" erre a commitra áll: {1} {2}', cur().refs?.head || 'HEAD', short(c.hash), c.subject));
   if (!v) return;
-  if (v.mode === 'hard' && !(await confirmDlg('Hard reset', 'Minden nem commitolt változás véglegesen elvész. Biztos?', 'Hard reset', true))) return;
+  if (v.mode === 'hard' && !(await confirmDlg('Hard reset', t('Minden nem commitolt változás véglegesen elvész. Biztos?'), 'Hard reset', true))) return;
   await op(`Reset --${v.mode}`, ['reset', `--${v.mode}`, c.hash]);
 }
 
 async function tagDlg(target) {
-  const v = await formDlg('Új tag', [
-    { name: 'name', label: 'Tag neve', placeholder: 'v1.0.0' },
+  const v = await formDlg(t('Új tag'), [
+    { name: 'name', label: t('Tag neve'), placeholder: 'v1.0.0' },
     { name: 'target', label: 'Commit', value: target },
-    { name: 'message', label: 'Üzenet (annotált taghez, üres = lightweight)', type: 'textarea', rows: 3 },
-    { name: 'push', label: 'Push a remote-ra is', type: 'checkbox', value: false },
-  ], 'Létrehozás');
+    { name: 'message', label: t('Üzenet (annotált taghez, üres = lightweight)'), type: 'textarea', rows: 3 },
+    { name: 'push', label: t('Push a remote-ra is'), type: 'checkbox', value: false },
+  ], t('Létrehozás'));
   if (!v || !v.name.trim()) return;
   const args = ['tag'];
   if (v.message.trim()) args.push('-a', '-m', v.message.trim());
@@ -1365,10 +1378,10 @@ async function tagDlg(target) {
 async function stashDlg() {
   const r = cur();
   const v = await formDlg('Stash', [
-    { name: 'message', label: 'Üzenet (opcionális)' },
-    { name: 'untracked', label: 'Nem követett fájlok is (-u)', type: 'checkbox', value: true },
-    { name: 'keep', label: 'Staged változások megtartása (--keep-index)', type: 'checkbox', value: false },
-    { name: 'staged', label: 'Csak a staged változások (--staged)', type: 'checkbox', value: false },
+    { name: 'message', label: t('Üzenet (opcionális)') },
+    { name: 'untracked', label: t('Nem követett fájlok is (-u)'), type: 'checkbox', value: true },
+    { name: 'keep', label: t('Staged változások megtartása (--keep-index)'), type: 'checkbox', value: false },
+    { name: 'staged', label: t('Csak a staged változások (--staged)'), type: 'checkbox', value: false },
   ], 'Stash');
   if (!v) return;
   const args = ['stash', 'push'];
@@ -1384,13 +1397,13 @@ async function stashPop() {
 }
 
 async function addRemoteDlg() {
-  const v = await formDlg('Remote hozzáadása', [
-    { name: 'name', label: 'Név', value: (cur().refs?.remotes || []).length ? '' : 'origin' },
+  const v = await formDlg(t('Remote hozzáadása'), [
+    { name: 'name', label: t('Név'), value: (cur().refs?.remotes || []).length ? '' : 'origin' },
     { name: 'url', label: 'URL', placeholder: 'https://github.com/user/repo.git' },
-    { name: 'fetch', label: 'Fetch hozzáadás után', type: 'checkbox', value: true },
-  ], 'Hozzáadás');
+    { name: 'fetch', label: t('Fetch hozzáadás után'), type: 'checkbox', value: true },
+  ], t('Hozzáadás'));
   if (!v || !v.name.trim() || !v.url.trim()) return;
-  const ok = await op('Remote hozzáadása', ['remote', 'add', v.name.trim(), v.url.trim()], { refresh: !v.fetch });
+  const ok = await op(t('Remote hozzáadása'), ['remote', 'add', v.name.trim(), v.url.trim()], { refresh: !v.fetch });
   if (ok != null && v.fetch) await op('Fetch', ['fetch', v.name.trim()]);
 }
 
@@ -1403,7 +1416,7 @@ async function pickFolder(title) {
 }
 
 async function openRepoDlg() {
-  const p = await pickFolder('Git repository megnyitása');
+  const p = await pickFolder(t('Git repository megnyitása'));
   if (p) openRepo(p);
 }
 
@@ -1440,31 +1453,68 @@ function closeRepo(i) {
 }
 
 async function cloneDlg() {
-  const v = await formDlg('Repository klónozása', [
+  const v = await formDlg(t('Repository klónozása'), [
     { name: 'url', label: 'URL', placeholder: 'https://github.com/user/repo.git' },
-    { name: 'parent', label: 'Szülő mappa', value: localStorage.getItem('gs.cloneParent') || '', note: 'Ide kerül a repository mappája.' },
-    { name: 'name', label: 'Mappa neve (üres = a repository neve)' },
-  ], 'Klónozás');
+    { name: 'parent', label: t('Szülő mappa'), value: localStorage.getItem('gs.cloneParent') || '', note: t('Ide kerül a repository mappája.') },
+    { name: 'name', label: t('Mappa neve (üres = a repository neve)') },
+  ], t('Klónozás'));
   if (!v || !v.url.trim()) return;
   let parent = v.parent.trim();
-  if (!parent) { parent = await pickFolder('Hova klónozzam?'); if (!parent) return; }
+  if (!parent) { parent = await pickFolder(t('Hova klónozzam?')); if (!parent) return; }
   localStorage.setItem('gs.cloneParent', parent);
   const name = v.name.trim() || basename(v.url.trim().replace(/\/+$/, '')).replace(/\.git$/, '');
   const dest = parent.replace(/[\\/]+$/, '') + '\\' + name;
-  setBusy(true, `Klónozás: ${v.url}…`);
+  setBusy(true, t('Klónozás: {0}…', v.url));
   try {
     const info = await invoke('clone_repo', { url: v.url.trim(), dest });
-    toast(`Klónozva: ${info.path}`, 'ok');
+    toast(t('Klónozva: {0}', info.path), 'ok');
     await openRepo(info.path);
-  } catch (e) { toast('Klónozás sikertelen:\n' + e, 'err'); }
+  } catch (e) { toast(t('Klónozás sikertelen:\n') + e, 'err'); }
   finally { setBusy(false); }
 }
 
 async function initDlg() {
-  const p = await pickFolder('Mappa az új repository-nak');
+  const p = await pickFolder(t('Mappa az új repository-nak'));
   if (!p) return;
-  try { const info = await invoke('init_repo', { path: p }); toast(`Új repository: ${info.path}`, 'ok'); await openRepo(info.path); }
+  try { const info = await invoke('init_repo', { path: p }); toast(t('Új repository: {0}', info.path), 'ok'); await openRepo(info.path); }
   catch (e) { toast(e, 'err'); }
+}
+
+// ── about ──
+async function aboutDlg() {
+  let info = {};
+  try { info = await invoke('app_info'); } catch (e) { info = { git: String(e) }; }
+  const ds = isDeepSeek();
+  const ai = aiKey() ? `${ds ? 'DeepSeek' : 'Anthropic Claude'} · ${aiModel()}` : t('nincs beállítva');
+  const rows = [
+    [t('Verzió'), info.version || '?'],
+    ['Git', info.git || '?'],
+    ['Tauri', info.tauri || '?'],
+    [t('Rendszer'), info.os || '?'],
+    ['AI', ai],
+    [t('Beállítások fájl'), info.settings_path || '?'],
+  ];
+  const text = 'GitStar ' + rows.map(([k, v]) => `${k}: ${v}`).join('\n');
+  const features = [
+    ['sparkle', t('AI commit üzenetek')], ['split', t('Vizuális diff')], ['compare', t('AI diff összehasonlítás')],
+    ['history', t('Commit gráf')], ['branch', t('Ágak, merge, rebase')], ['globe', t('Magyar / English')],
+  ];
+  const body = h('div.about',
+    h('div.about-hero',
+      h('div.about-logo', h('img', { src: 'img/icon.svg', alt: 'GitStar' })),
+      h('div.about-name', 'GitStar'),
+      h('div.about-ver', `v${info.version || '?'}`),
+      h('div.about-tag', t('Git kliens AI commit üzenetekkel és vizuális diff-fel.'))),
+    h('div.about-feats', features.map(([ic, l]) => h('span.about-feat', icon(ic), l))),
+    h('div.about-info', rows.map(([k, v]) => [h('span.k', k), h('span.v', { title: v }, v)])),
+    h('div.about-foot', t('Rust + Tauri 2, a git műveleteket a git.exe végzi. AI: Anthropic Claude vagy DeepSeek.')));
+  const res = await modal({ title: t('Névjegy'), body, buttons: [
+    { label: t('Beállítások mappa'), value: 'folder' },
+    { label: t('Másolás'), value: 'copy' },
+    { label: t('Bezárás'), value: false, primary: true },
+  ] });
+  if (res === 'copy') { await navigator.clipboard.writeText(text).catch(() => {}); toast(t('Vágólapra másolva')); }
+  if (res === 'folder' && info.settings_path) invoke('reveal_in_explorer', { path: info.settings_path }).catch((e) => toast(e, 'err'));
 }
 
 // ── settings ──
@@ -1475,43 +1525,88 @@ async function settingsDlg() {
   const fld = (name, label, el, note, full) => { els[name] = el; return h('label.field' + (full ? '.full' : ''), h('span', label), el, note ? h('span.note', note) : null); };
   const sel = (opts, val) => { const e = h('select.inp', opts.map(([v, l]) => h('option', { value: v }, l))); e.value = val; return e; };
   const gitVer = h('span.note', '');
-  const gitInp = h('input.inp', { value: s.git_path, placeholder: 'git (a PATH-ból) vagy C:\\Program Files\\Git\\cmd\\git.exe', spellcheck: 'false' });
+  const gitInp = h('input.inp', { value: s.git_path, placeholder: t('git (a PATH-ból) vagy C:\\Program Files\\Git\\cmd\\git.exe'), spellcheck: 'false' });
   const testGit = async () => { try { gitVer.textContent = '✓ ' + (await invoke('git_version', { path: gitInp.value || 'git' })); } catch (e) { gitVer.textContent = '✗ ' + e; } };
   testGit();
-  const modelSel = sel([...models.map((m) => [m, m]), ['custom', 'Egyéb…']], models.includes(s.ai_model) ? s.ai_model : 'custom');
+  const modelSel = sel([...models.map((m) => [m, m]), ['custom', t('Egyéb…')]], models.includes(s.ai_model) ? s.ai_model : 'custom');
   const customModel = h('input.inp', { value: models.includes(s.ai_model) ? '' : s.ai_model, placeholder: 'model id', style: { display: models.includes(s.ai_model) ? 'none' : '' } });
   modelSel.addEventListener('change', () => (customModel.style.display = modelSel.value === 'custom' ? '' : 'none'));
   const key = h('input.inp', { type: 'password', value: s.anthropic_api_key, placeholder: 'sk-ant-…', spellcheck: 'false' });
+  const dsModels = ['deepseek-flash', 'deepseek-v4-pro'];
+  const dsModel = s.deepseek_model || 'deepseek-flash';
+  const dsKey = h('input.inp', { type: 'password', value: s.deepseek_api_key || '', placeholder: 'sk-…', spellcheck: 'false' });
+  const dsModelSel = sel([...dsModels.map((m) => [m, m]), ['custom', t('Egyéb…')]], dsModels.includes(dsModel) ? dsModel : 'custom');
+  const dsCustom = h('input.inp', { value: dsModels.includes(dsModel) ? '' : dsModel, placeholder: 'model id', style: { display: dsModels.includes(dsModel) ? 'none' : '' } });
+  dsModelSel.addEventListener('change', () => (dsCustom.style.display = dsModelSel.value === 'custom' ? '' : 'none'));
+  const providerSel = sel([['anthropic', 'Anthropic Claude'], ['deepseek', 'DeepSeek']], s.ai_provider || 'anthropic');
+  const claudeBox = h('div.settings-sub.full',
+    h('label.field.full', h('span', t('Anthropic API kulcs')), key, h('span.note', t('A kulcs a GitStar beállításfájljában tárolódik ezen a gépen (settings.json az alkalmazás konfigurációs mappájában). Kulcs: console.anthropic.com'))),
+    h('label.field', h('span', t('Modell')), modelSel, customModel, h('span.note', t('Alapértelmezés: claude-opus-5-5. Gyorsabb/olcsóbb: claude-haiku-5-5.'))));
+  const dsBox = h('div.settings-sub.full',
+    h('label.field.full', h('span', t('DeepSeek API kulcs')), dsKey, h('span.note', t('A kulcs a GitStar beállításfájljában tárolódik ezen a gépen. Kulcs: platform.deepseek.com'))),
+    h('label.field', h('span', t('Modell')), dsModelSel, dsCustom, h('span.note', t('Alapértelmezés: deepseek-flash. Erősebb: deepseek-v4-pro.'))));
+  const syncProvider = () => { const ds = providerSel.value === 'deepseek'; claudeBox.style.display = ds ? 'none' : ''; dsBox.style.display = ds ? '' : 'none'; };
+  providerSel.addEventListener('change', syncProvider);
+  syncProvider();
+  // Test with the values typed in the dialog (they need not be saved yet).
+  const aiTestOut = h('span.note', '');
+  const aiTestBtn = h('button.btn', { on: { click: async () => {
+    const ds = providerSel.value === 'deepseek';
+    const apiKey = (ds ? dsKey.value : key.value).trim();
+    const model = ds
+      ? (dsModelSel.value === 'custom' ? dsCustom.value.trim() || 'deepseek-flash' : dsModelSel.value)
+      : (modelSel.value === 'custom' ? customModel.value.trim() || 'claude-opus-5-5' : modelSel.value);
+    if (!apiKey) { aiTestOut.className = 'note err'; aiTestOut.textContent = '✗ ' + t('Nincs megadva API kulcs.'); return; }
+    aiTestBtn.disabled = true;
+    aiTestOut.className = 'note';
+    aiTestOut.textContent = t('Tesztelés…');
+    try {
+      aiTestOut.textContent = '✓ ' + (await invoke('ai_test', { provider: providerSel.value, apiKey, model }));
+      aiTestOut.className = 'note ok';
+    } catch (e) {
+      aiTestOut.textContent = '✗ ' + e;
+      aiTestOut.className = 'note err';
+    } finally { aiTestBtn.disabled = false; }
+  } } }, t('Teszt'));
+  providerSel.addEventListener('change', () => { aiTestOut.textContent = ''; });
   const body = h('div.settings-grid',
     h('div.settings-sec', 'Git'),
-    h('label.field.full', h('span', 'git.exe útvonala'), h('div', { style: { display: 'flex', gap: '6px' } }, gitInp,
+    h('label.field.full', h('span', t('git.exe útvonala')), h('div', { style: { display: 'flex', gap: '6px' } }, gitInp,
       h('button.btn', { on: { click: async () => {
-        try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: 'git.exe kiválasztása', filters: [{ name: 'git', extensions: ['exe'] }] } }); if (p) { gitInp.value = p; testGit(); } } catch (e) { toast(e, 'err'); }
-      } } }, 'Tallózás…'), h('button.btn', { on: { click: testGit } }, 'Teszt')), gitVer),
-    fld('log_limit', 'Betöltött commitok száma', h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
+        try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: t('git.exe kiválasztása'), filters: [{ name: 'git', extensions: ['exe'] }] } }); if (p) { gitInp.value = p; testGit(); } } catch (e) { toast(e, 'err'); }
+      } } }, t('Tallózás…')), h('button.btn', { on: { click: testGit } }, t('Teszt'))), gitVer),
+    fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
     h('div'),
-    h('div.settings-sec', 'Megjelenés'),
-    fld('theme', 'Téma', sel([['dark', 'Sötét'], ['light', 'Világos'], ['system', 'Rendszer szerint']], s.theme)),
-    fld('font_size', 'Betűméret', h('input.inp', { type: 'number', min: 10, max: 20, value: s.font_size })),
-    h('div.settings-sec', 'AI (Anthropic Claude)'),
-    h('label.field.full', h('span', 'Anthropic API kulcs'), key, h('span.note', 'A kulcs a GitStar beállításfájljában tárolódik ezen a gépen (settings.json az alkalmazás konfigurációs mappájában). Kulcs: console.anthropic.com')),
-    h('label.field', h('span', 'Modell'), modelSel, customModel, h('span.note', 'Alapértelmezés: claude-opus-5-5. Gyorsabb/olcsóbb: claude-haiku-5-5.')),
-    fld('ai_language', 'AI szövegek nyelve', sel([['hu', 'Magyar'], ['en', 'English']], s.ai_language)),
-    fld('commit_style', 'Commit üzenet stílus', sel([['conventional', 'Conventional Commits (feat: …)'], ['simple', 'Egyszerű, egy sor'], ['detailed', 'Részletes, felsorolással']], s.commit_style), null, true),
+    h('div.settings-sec', t('Megjelenés')),
+    fld('ui_language', t('Felület nyelve'), sel([['auto', t('Automatikus (rendszer)')], ['hu', 'Magyar'], ['en', 'English']], s.ui_language || 'auto')),
+    h('div'),
+    fld('theme', t('Téma'), sel([['dark', t('Sötét')], ['light', t('Világos')], ['ai', 'AI (neon)'], ['system', t('Rendszer szerint')]], s.theme)),
+    fld('font_size', t('Betűméret'), h('input.inp', { type: 'number', min: 10, max: 20, value: s.font_size })),
+    h('div.settings-sec', 'AI'),
+    h('label.field.full', h('span', t('AI szolgáltató')), h('div', { style: { display: 'flex', gap: '6px' } }, providerSel, aiTestBtn), aiTestOut),
+    claudeBox,
+    dsBox,
+    fld('ai_language', t('AI szövegek nyelve'), sel([['hu', t('Magyar')], ['en', 'English']], s.ai_language)),
+    fld('commit_style', t('Commit üzenet stílus'), sel([['conventional', 'Conventional Commits (feat: …)'], ['simple', t('Egyszerű, egy sor')], ['detailed', t('Részletes, felsorolással')]], s.commit_style), null, true),
   );
-  const ok = await modal({ title: 'Beállítások', body, wide: true, buttons: [{ label: 'Mégse', value: false }, { label: 'Mentés', value: true, primary: true }] });
+  const ok = await modal({ title: t('Beállítások'), body, wide: true, buttons: [{ label: t('Mégse'), value: false }, { label: t('Mentés'), value: true, primary: true }] });
   if (!ok) return;
   Object.assign(S.settings, {
     git_path: gitInp.value.trim(),
     log_limit: Math.max(100, +els.log_limit.value || 1500),
     theme: els.theme.value,
+    ui_language: els.ui_language.value,
     font_size: Math.max(10, Math.min(20, +els.font_size.value || 13)),
+    ai_provider: providerSel.value,
     anthropic_api_key: key.value.trim(),
+    deepseek_api_key: dsKey.value.trim(),
+    deepseek_model: dsModelSel.value === 'custom' ? dsCustom.value.trim() || 'deepseek-flash' : dsModelSel.value,
     ai_model: modelSel.value === 'custom' ? customModel.value.trim() || 'claude-opus-5-5' : modelSel.value,
     ai_language: els.ai_language.value,
     commit_style: els.commit_style.value,
   });
   await saveSettings();
+  applyLang();
   applyTheme();
   renderAll(true);
   if (cur()) refreshAll(cur());
@@ -1522,8 +1617,9 @@ async function settingsDlg() {
 async function boot() {
   try { S.settings = await invoke('get_settings'); }
   catch (e) { S.settings = { theme: 'dark', diff_mode: 'split', diff_context: 3, log_limit: 1500, recent_repos: [], open_repos: [] }; toast(e, 'err'); }
+  applyLang();
   applyTheme();
-  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.theme === 'system') { applyTheme(); renderToolbar(); } });
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.theme === 'system') { applyTheme(); renderAll(true); } });
   splitter(document.getElementById('side-split'), document.getElementById('sidebar'), { min: 160, max: 520, key: 'gs.sideW' });
   renderAll();
   const wanted = S.settings.active_repo;
@@ -1559,6 +1655,7 @@ async function boot() {
     if (document.querySelector('.overlay')) return;
     const r = cur();
     if (e.key === 'F5') { e.preventDefault(); if (r) refreshAll(r); }
+    else if (e.key === 'F1') { e.preventDefault(); aboutDlg(); }
     else if (e.ctrlKey && e.key.toLowerCase() === 'o') { e.preventDefault(); openRepoDlg(); }
     else if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleConsole(); }
     else if (e.ctrlKey && e.key === '1' && r) { e.preventDefault(); setView('changes'); }
