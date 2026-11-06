@@ -1,7 +1,7 @@
 // GitStar – main UI.
 
 import {
-  invoke, h, icon, toast, modal, confirmDlg, formDlg, contextMenu, relTime, fmtDate, avatar,
+  invoke, h, icon, toast, modal, confirmDlg, formDlg, combo, contextMenu, relTime, fmtDate, avatar,
   short, basename, dirname, splitter, markdown, shellSplit, debounce, esc,
 } from './util.js';
 import { DiffView, renderBlame } from './diff.js';
@@ -85,12 +85,14 @@ function applyTheme() {
   document.documentElement.style.setProperty('--font-size', (S.settings.font_size || 13) + 'px');
 }
 
-const THEMES = ['dark', 'light', 'ai'];
-const THEME_UI = { dark: ['Sötét', 'moon'], light: ['Világos', 'sun'], ai: ['AI', 'sparkle'] };
+// The toolbar button only flips between the plain dark and light themes;
+// the other themes (AI, retro, modern…) are chosen in Settings.
+const THEME_UI = { dark: ['Sötét', 'moon'], light: ['Világos', 'sun'] };
+const LIGHT_THEMES = ['light', 'modern'];
+const nextBasicTheme = () => (LIGHT_THEMES.includes(document.documentElement.dataset.theme) ? 'dark' : 'light');
 
 function toggleTheme() {
-  const now = document.documentElement.dataset.theme;
-  S.settings.theme = THEMES[(THEMES.indexOf(now) + 1) % THEMES.length];
+  S.settings.theme = nextBasicTheme();
   applyTheme();
   saveSettings();
   renderAll(true);
@@ -203,17 +205,22 @@ function renderTabs() {
   );
 }
 
-function tb(label, ic, action, { disabled, title, badge, spin, menu } = {}) {
+function tb(label, ic, action, { disabled, title, badge, spin, menu, drop, dropTitle } = {}) {
   const on = { click: action };
   if (menu) on.contextmenu = (e) => { e.preventDefault(); menu(e); };
-  return h('button.tb', { disabled: disabled || null, title: title || label, on },
+  const btn = h('button.tb', { disabled: disabled || null, title: title || label, on },
     icon(ic, spin ? 'spin' : ''), h('span', label), badge ? h('span.badge', badge) : null);
+  if (!drop) return btn;
+  // split button: the main part acts at once, the narrow right part opens the options
+  return h('div.tb-split', btn,
+    h('button.tb-drop', { disabled: disabled || null, title: dropTitle || label, on: { click: drop } },
+      icon('chev')));
 }
 
 function renderToolbar() {
   const el = document.getElementById('toolbar');
   const r = cur();
-  const nextTheme = THEMES[(THEMES.indexOf(document.documentElement.dataset.theme) + 1) % THEMES.length];
+  const nextTheme = nextBasicTheme();
   const st = r?.status;
   const no = !r;
   el.replaceChildren(
@@ -225,8 +232,10 @@ function renderToolbar() {
     tb('Fetch', 'fetch', () => doFetch(), { disabled: no }),
     tb('Pull', 'pull', (e) => (e.shiftKey ? pullDlg() : doPull()), { disabled: no, badge: st?.behind || null, menu: () => pullDlg(),
       title: (st?.behind ? t('{0} új commit a remote-on', st.behind) + '\n' : '') + t('Pull ({0}) · Shift+kattintás vagy jobb klikk: beállítások', pullModeName()) }),
-    tb('Push', 'push', () => pushDlg(), { disabled: no, badge: st?.unpushed || st?.ahead || null,
-      title: st?.unpushed ? t('{0} commit vár push-ra', st.unpushed) : 'Push' }),
+    tb('Push', 'push', () => quickPush(), { disabled: no, badge: st?.unpushed || st?.ahead || null, menu: () => pushDlg(),
+      drop: () => pushDlg(), dropTitle: t('Push beállítások…'),
+      title: (st?.unpushed ? t('{0} commit vár push-ra', st.unpushed) + '\n' : '') + (st?.upstream ? t('Push ide: {0}', st.upstream) : t('Push, upstream beállításával')) }),
+    tb('PR', 'pr', () => prDlg(), { disabled: no || !r?.refs?.remotes?.length || !!st?.detached, title: t('Pull request létrehozása a böngészőben') }),
     h('div.tb-sep'),
     tb(t('Ág'), 'branch', () => newBranchDlg(), { disabled: no, title: t('Új ág') }),
     tb('Merge', 'merge', () => mergeDlg(), { disabled: no }),
@@ -237,7 +246,7 @@ function renderToolbar() {
     tb(t('Mappa'), 'folder', () => invoke('reveal_in_explorer', { path: r.path }), { disabled: no }),
     tb(t('Konzol'), 'console', () => toggleConsole(), { disabled: no, title: t('Git konzol (Ctrl+`)') }),
     h('div.tb-spacer'),
-    tb(t(THEME_UI[nextTheme][0]), THEME_UI[nextTheme][1], toggleTheme, { title: t('Téma váltása (Sötét → Világos → AI)') }),
+    tb(t(THEME_UI[nextTheme][0]), THEME_UI[nextTheme][1], toggleTheme, { title: t('Váltás sötét és világos téma között (a többi téma a Beállításokban)') }),
     tb(t('Beállítások'), 'settings', () => settingsDlg()),
     tb(t('Névjegy'), 'info', () => aboutDlg(), { title: t('A GitStar névjegye (F1)') }),
   );
@@ -991,17 +1000,12 @@ async function showBlame(path, rev) {
 function renderCompare(el, r, keep) {
   const dv = diffView();
   const c = r.compare;
-  const refNames = () => {
-    const x = r.refs || { local: [], remote: [], tags: [] };
-    return [...x.local.map((b) => b.name), ...x.remote.map((b) => b.name), ...x.tags.map((tg) => tg.name), 'HEAD'];
-  };
-  const dl = h('datalist#refs-dl', refNames().map((n) => h('option', { value: n })));
-  const from = h('input.inp', { list: 'refs-dl', placeholder: t('Honnan (pl. main)'), value: c.from, on: { input: (e) => (c.from = e.target.value.trim()) } });
-  const to = h('input.inp', { list: 'refs-dl', placeholder: t('Hová (üres = working tree)'), value: c.to, on: { input: (e) => (c.to = e.target.value.trim()) } });
+  const opts = refOptions(r, { tags: true, head: true });
+  const go = () => runCompare(r);
+  const from = combo({ value: c.from, options: opts, placeholder: t('Honnan (pl. main)'), onInput: (v) => (c.from = v.trim()), onEnter: go });
+  const to = combo({ value: c.to, options: opts, placeholder: t('Hová (üres = working tree)'), onInput: (v) => (c.to = v.trim()), onEnter: go });
   const mb = h('input', { type: 'checkbox', checked: c.mergeBase, on: { change: (e) => (c.mergeBase = e.target.checked) } });
-  const go = (e) => { if (e.key === 'Enter') runCompare(r); };
-  from.addEventListener('keydown', go); to.addEventListener('keydown', go);
-  const bar = h('div.compare-bar', dl, h('b', t('Összehasonlítás')), from,
+  const bar = h('div.compare-bar', h('b', t('Összehasonlítás')), from,
     h('button.icon-btn', { title: t('Csere'), on: { click: () => { [c.from, c.to] = [c.to, c.from]; renderContent(); } } }, '⇄'), to,
     h('label.chk', { title: t('A "Honnan" helyett a két revízió közös ősét (merge-base) használja – azt mutatja, mit hozna be a "Hová" ág') }, mb, t('Merge-base (A...B)')),
     h('button.btn.primary', { on: { click: () => runCompare(r) } }, icon('compare'), t('Összehasonlítás')),
@@ -1328,6 +1332,23 @@ async function pullDlg() {
   await runPull(v.mode, v.autostash);
 }
 
+/** Push button: push the current branch straight to its upstream (or set one up on the first push). */
+async function quickPush() {
+  const r = cur();
+  const remotes = r.refs?.remotes || [];
+  if (!remotes.length) { toast(t('Nincs remote. Adj hozzá egyet a Remote-ok szekcióban.'), 'err'); return; }
+  const b = r.refs.local.find((x) => x.name === r.refs.head);
+  if (!b) { toast(t('Detached HEAD-ből nem lehet push-olni ágat. Hozz létre ágat.'), 'err'); return; }
+  const rem = b.upstream && remotes.find((x) => b.upstream.startsWith(x.name + '/'));
+  if (rem && !b.gone) {
+    await op('Push', ['push', '--progress', rem.name, `${b.name}:${b.upstream.slice(rem.name.length + 1)}`]);
+  } else {
+    // first push of this branch: same name on origin (or the only remote), with -u
+    const target = (remotes.find((x) => x.name === 'origin') || remotes[0]).name;
+    await op('Push', ['push', '--progress', '-u', target, `${b.name}:${b.name}`]);
+  }
+}
+
 async function pushDlg(branch) {
   const r = cur();
   const remotes = r.refs?.remotes || [];
@@ -1337,7 +1358,8 @@ async function pushDlg(branch) {
   const upRemote = b.upstream ? b.upstream.split('/')[0] : remotes[0].name;
   const v = await formDlg('Push', [
     { name: 'remote', label: 'Remote', type: 'select', value: upRemote, options: remotes.map((x) => x.name) },
-    { name: 'target', label: t('Cél ág'), value: b.upstream ? b.upstream.slice(upRemote.length + 1) : b.name },
+    { name: 'target', label: t('Cél ág'), type: 'combo', value: b.upstream ? b.upstream.slice(upRemote.length + 1) : b.name,
+      options: [...new Set([...remoteBranches(r, upRemote), ...r.refs.local.map((x) => x.name)])] },
     { name: 'upstream', label: t('Upstream beállítása (-u)'), type: 'checkbox', value: !b.upstream },
     { name: 'tags', label: t('Tagek push-olása is (--follow-tags)'), type: 'checkbox', value: false },
     { name: 'force', label: 'Force push (--force-with-lease)', type: 'checkbox', value: false },
@@ -1352,11 +1374,88 @@ async function pushDlg(branch) {
   await op('Push', args);
 }
 
+// ── branch pickers ──
+
+/** Combo-box options for refs: local branches, remote branches, tags (each optional), grouped. */
+function refOptions(r, { local = true, remote = true, tags = false, head = false, exclude = [] } = {}) {
+  const x = r.refs || { local: [], remote: [], tags: [] };
+  const out = [];
+  const add = (names, group) => { for (const n of names) if (!exclude.includes(n)) out.push({ value: n, group }); };
+  if (head) add(['HEAD'], 'HEAD');
+  if (local) add(x.local.map((b) => b.name), t('Lokális ágak'));
+  if (remote) add(x.remote.map((b) => b.name).filter((n) => !n.endsWith('/HEAD')), t('Remote ágak'));
+  if (tags) add(x.tags.map((tg) => tg.name), 'Tags');
+  return out;
+}
+
+/** Branch names on one remote (without the "origin/" prefix). */
+const remoteBranches = (r, remote) => (r.refs?.remote || []).map((b) => b.name)
+  .filter((n) => n.startsWith(remote + '/') && n !== remote + '/HEAD').map((n) => n.slice(remote.length + 1));
+
+// ── pull request ──
+
+/** Web base URL ("https://host/owner/repo") and hosting kind of a remote URL. */
+function remoteWeb(url) {
+  let u = String(url || '').trim().replace(/\/+$/, '').replace(/\.git$/, '');
+  let m;
+  if ((m = u.match(/^(?:[^@/]+@)?ssh\.dev\.azure\.com:v3\/([^/]+)\/([^/]+)\/(.+)$/)) || (m = u.match(/^(?:ssh:\/\/)?[^@]+@ssh\.dev\.azure\.com(?::\d+)?\/v3\/([^/]+)\/([^/]+)\/(.+)$/)))
+    return { base: `https://dev.azure.com/${m[1]}/${m[2]}/_git/${m[3]}`, kind: 'azure' };
+  if ((m = u.match(/^(?:ssh|git):\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+)$/))) u = `https://${m[1]}/${m[2]}`;
+  else if ((m = u.match(/^[^@/]+@([^:/]+):(?!\d+\/)(.+)$/))) u = `https://${m[1]}/${m[2]}`;
+  else if ((m = u.match(/^(https?):\/\/(?:[^@/]+@)?(.+)$/))) u = `${m[1]}://${m[2]}`;
+  else return null;
+  const host = new URL(u).hostname;
+  const kind = /dev\.azure\.com$|visualstudio\.com$/.test(host) ? 'azure' : /gitlab/.test(host) ? 'gitlab' : /bitbucket/.test(host) ? 'bitbucket' : 'github';
+  return { base: u, kind };
+}
+
+function prUrl(web, source, target) {
+  const e = encodeURIComponent;
+  switch (web.kind) {
+    case 'gitlab': return `${web.base}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${e(source)}&merge_request%5Btarget_branch%5D=${e(target)}`;
+    case 'bitbucket': return `${web.base}/pull-requests/new?source=${e(source)}&dest=${e(target)}`;
+    case 'azure': return `${web.base}/pullrequestcreate?sourceRef=${e(source)}&targetRef=${e(target)}`;
+    // GitHub, and Gitea / Forgejo / Codeberg which use the same compare page
+    default: return `${web.base}/compare/${target.split('/').map(e).join('/')}...${source.split('/').map(e).join('/')}?expand=1`;
+  }
+}
+
+async function prDlg() {
+  const r = cur();
+  const remotes = r.refs?.remotes || [];
+  if (!remotes.length) { toast(t('Nincs remote. Adj hozzá egyet a Remote-ok szekcióban.'), 'err'); return; }
+  const b = r.refs.local.find((x) => x.name === r.refs.head);
+  if (!b) { toast(t('Detached HEAD-ből nem lehet pull requestet nyitni. Hozz létre ágat.'), 'err'); return; }
+  const remote = b.upstream && remotes.some((x) => b.upstream.startsWith(x.name + '/')) ? b.upstream.split('/')[0] : (remotes.find((x) => x.name === 'origin') || remotes[0]).name;
+  const source = b.upstream && b.upstream.startsWith(remote + '/') ? b.upstream.slice(remote.length + 1) : b.name;
+  const targets = remoteBranches(r, remote).filter((n) => n !== source);
+  const target = ['main', 'master', 'develop', 'development'].find((n) => targets.includes(n)) || targets[0] || 'main';
+  const needPush = !b.upstream || b.gone || b.ahead > 0;
+  const fields = [];
+  if (remotes.length > 1) fields.push({ name: 'remote', label: 'Remote', type: 'select', value: remote, options: remotes.map((x) => x.name) });
+  fields.push({ name: 'target', label: t('Cél ág (ebbe merge-öl)'), type: 'combo', value: target, options: targets });
+  if (needPush) fields.push({ name: 'push', label: b.upstream && !b.gone ? t('Push előtte ({0} új commit)', b.ahead) : t('Push előtte (az ág még nincs a remote-on)'), type: 'checkbox', value: true });
+  const v = await formDlg(t('Pull request létrehozása'), fields, t('Megnyitás a böngészőben'), t('Forrás ág: {0}', b.name));
+  if (!v) return;
+  const rem = remotes.find((x) => x.name === (v.remote || remote));
+  const web = remoteWeb(rem.url);
+  if (!web) { toast(t('Ennél a remote-nál ({0}) nem tudom, hol lehet pull requestet nyitni.', rem.url), 'err'); return; }
+  const src = rem.name === remote ? source : b.name;
+  if (v.push) {
+    const args = ['push', '--progress'];
+    if (!b.upstream || b.gone) args.push('-u');
+    args.push(rem.name, `${b.name}:${src}`);
+    if ((await op('Push', args)) == null) return;
+  }
+  try { await invoke('open_url', { url: prUrl(web, src, (v.target || target).trim()) }); }
+  catch (e) { toast(String(e), 'err'); }
+}
+
 async function newBranchDlg(start) {
   const r = cur();
   const v = await formDlg(t('Új ág'), [
     { name: 'name', label: t('Ág neve'), placeholder: 'feature/uj-funkcio' },
-    { name: 'start', label: t('Kiindulópont'), value: start || r.refs?.head || 'HEAD' },
+    { name: 'start', label: t('Kiindulópont'), type: 'combo', value: start || r.refs?.head || 'HEAD', options: refOptions(r, { tags: true, head: true }) },
     { name: 'checkout', label: t('Checkout létrehozás után'), type: 'checkbox', value: true },
   ], t('Létrehozás'));
   if (!v || !v.name.trim()) return;
@@ -1396,7 +1495,7 @@ async function mergeDlg(ref) {
   const head = r.refs?.head;
   if (!head) { toast('Detached HEAD-re nem lehet merge-elni.', 'err'); return; }
   const v = await formDlg(`Merge → ${head}`, [
-    { name: 'ref', label: t('Melyik ágat / commitot'), value: ref || '', placeholder: 'pl. feature/x' },
+    { name: 'ref', label: t('Melyik ágat / commitot'), type: 'combo', value: ref || '', placeholder: t('pl. feature/x'), options: refOptions(r, { tags: true, exclude: [head] }) },
     { name: 'mode', label: t('Mód'), type: 'select', value: 'default', options: [
       { value: 'default', label: t('Alapértelmezett (fast-forward ha lehet)') },
       { value: 'noff', label: t('Mindig merge commit (--no-ff)') },
@@ -1435,7 +1534,7 @@ async function resetDlg(c) {
 async function tagDlg(target) {
   const v = await formDlg(t('Új tag'), [
     { name: 'name', label: t('Tag neve'), placeholder: 'v1.0.0' },
-    { name: 'target', label: 'Commit', value: target },
+    { name: 'target', label: 'Commit', type: 'combo', value: target, options: refOptions(cur(), { head: true }) },
     { name: 'message', label: t('Üzenet (annotált taghez, üres = lightweight)'), type: 'textarea', rows: 3 },
     { name: 'push', label: t('Push a remote-ra is'), type: 'checkbox', value: false },
   ], t('Létrehozás'));
@@ -1662,7 +1761,7 @@ async function settingsDlg() {
     h('div.settings-sec', t('Megjelenés')),
     fld('ui_language', t('Felület nyelve'), sel([['auto', t('Automatikus (rendszer)')], ['hu', 'Magyar'], ['en', 'English']], s.ui_language || 'auto')),
     h('div'),
-    fld('theme', t('Téma'), sel([['dark', t('Sötét')], ['light', t('Világos')], ['ai', 'AI (neon)'], ['system', t('Rendszer szerint')]], s.theme)),
+    fld('theme', t('Téma'), sel([['dark', t('Sötét')], ['light', t('Világos')], ['ai', 'AI (neon)'], ['retro', t('Retró (8 bites)')], ['modern', t('Modern (üveg)')], ['modern-dark', t('Modern sötét (üveg)')], ['system', t('Rendszer szerint')]], s.theme)),
     fld('font_size', t('Betűméret'), h('input.inp', { type: 'number', min: 10, max: 20, value: s.font_size })),
     h('div.settings-sec', 'AI'),
     h('label.field.full', h('span', t('AI szolgáltató')), h('div', { style: { display: 'flex', gap: '6px' } }, providerSel, aiTestBtn), aiTestOut),

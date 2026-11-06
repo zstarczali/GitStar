@@ -1061,6 +1061,21 @@ pub fn open_file(path: String) -> Result<(), String> {
     return spawn(Proc::new("xdg-open").arg(&path));
 }
 
+/// Opens a web page (e.g. a "new pull request" page) in the default browser.
+/// Only http(s) URLs, so a crafted remote URL cannot launch anything else.
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) || url.chars().any(|c| c.is_whitespace() || c == '"') {
+        return Err(tr("Érvénytelen webcím.", "Invalid web address."));
+    }
+    #[cfg(windows)]
+    return spawn(Proc::new("rundll32").args(["url.dll,FileProtocolHandler", &url]));
+    #[cfg(target_os = "macos")]
+    return spawn(Proc::new("open").arg(&url));
+    #[cfg(not(any(windows, target_os = "macos")))]
+    return spawn(Proc::new("xdg-open").arg(&url));
+}
+
 /// Opens a terminal in the given folder.
 #[tauri::command]
 pub fn open_terminal(path: String) -> Result<(), String> {
@@ -1353,4 +1368,58 @@ pub async fn set_git_identity(state: State<'_, AppState>, name: String, email: S
         Ok(())
     })
     .await
+}
+
+// ───────────────────────────── splash screen ─────────────────────────────
+
+static SPLASH_DONE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// What is remembered of the main window: everything but the visibility
+/// (the main window must stay hidden until the splash is over).
+pub fn window_state_flags() -> tauri_plugin_window_state::StateFlags {
+    tauri_plugin_window_state::StateFlags::all() & !tauri_plugin_window_state::StateFlags::VISIBLE
+}
+
+/// How long the splash screen is shown; the main window appears after it.
+pub const SPLASH_TIME: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Creates the main window (hidden: `create: false` + `visible: false` in
+/// tauri.conf.json). It is created after the splash, not together with it:
+/// two WebView2 windows created at the same moment sometimes left the main
+/// one without a page.
+pub fn create_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    let cfg = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|w| w.label == "main")
+        .cloned()
+        .ok_or("no 'main' window in tauri.conf.json")?;
+    tauri::WebviewWindowBuilder::from_config(app, &cfg)
+        .and_then(|b| b.build())
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Shows the main window and closes the splash (only the first call counts).
+pub fn finish_splash(app: &tauri::AppHandle) {
+    use tauri::Manager;
+    let Some(main) = app.get_webview_window("main") else {
+        return; // keep the splash: closing the last window would quit the app
+    };
+    if SPLASH_DONE.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let _ = main.show();
+    // Windows moves a window created hidden when it is first shown: put it back
+    // where it was saved (size, position, maximized).
+    {
+        use tauri_plugin_window_state::WindowExt;
+        let _ = main.restore_state(window_state_flags());
+    }
+    let _ = main.set_focus();
+    if let Some(splash) = app.get_webview_window("splashscreen") {
+        let _ = splash.close();
+    }
 }
