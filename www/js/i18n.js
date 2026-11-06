@@ -363,6 +363,8 @@ const EN = {
   '{0} napja': '{0} days ago',
   'Az AI funkciókhoz add meg az API kulcsot a Beállításokban.': 'Set an API key in Settings to use the AI features.',
   'AI szolgáltató': 'AI provider',
+  'Húzd felfelé a commit üzenet mező nagyításához': 'Drag up to make the commit message field taller',
+  '(a teljes kimenet a Konzolban: Ctrl+`)': '(full output in the Console: Ctrl+`)',
   '{0} új commit a remote-on': '{0} new commits on the remote',
   'Pull ({0}) · Shift+kattintás vagy jobb klikk: beállítások': 'Pull ({0}) · Shift+click or right-click: options',
   '{0} commit vár push-ra': '{0} commits waiting to be pushed',

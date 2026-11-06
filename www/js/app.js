@@ -110,7 +110,7 @@ async function op(label, args, { quiet = false, refresh = true, repo = cur() } =
   setBusy(true, label);
   try {
     const out = await invoke('git_op', { repo: repo.path, args });
-    if (!quiet) toast(out.trim() ? `${label}\n${trimOut(out)}` : t('{0}: kész', label), 'ok');
+    if (!quiet) toast(opSummary(label, out), 'ok');
     consoleLog(repo, args, out, false);
     return out;
   } catch (e) {
@@ -123,7 +123,21 @@ async function op(label, args, { quiet = false, refresh = true, repo = cur() } =
   }
 }
 
-const trimOut = (s) => { const l = s.trim().split('\n'); return l.length > 14 ? l.slice(-14).join('\n') : l.join('\n'); };
+/**
+ * One or two lines for the success toast; the whole output is in the console.
+ * Keeps the lines that say what happened (refs moved, up to date, files changed)
+ * and drops progress, hints and "remote:" chatter.
+ */
+function opSummary(label, out) {
+  const lines = out.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+    .filter((l) => !/^(remote:|hint:|To |From |branch '.*' set up|Enumerating|Counting|Compressing|Writing|Total|Delta|Unpacking|Receiving|Resolving)/i.test(l));
+  const key = lines.filter((l) => /->|up.to.date|files? changed|Fast-forward|Successfully|Merge made|Already|rejected|Created autostash|Applied autostash/i.test(l) && !/FETCH_HEAD|^Updating /.test(l));
+  const src = key.length ? key : lines;
+  const pick = src.slice(0, 2).map((l) => (l.length > 90 ? l.slice(0, 87) + '…' : l));
+  const more = src.length > 2 ? '\n' + t('(a teljes kimenet a Konzolban: Ctrl+`)') : '';
+  return pick.length ? `${t('{0}: kész', label)}\n${pick.join('\n')}${more}` : t('{0}: kész', label);
+}
+
 
 async function call(cmd, args, label) {
   try { return await invoke(cmd, args); } catch (e) { toast((label ? label + ':\n' : '') + e, 'err'); throw e; }
@@ -477,7 +491,11 @@ function renderChanges(el, r, keep) {
       h('button.btn.sm', { disabled: !st.staged.length || null, on: { click: () => unstagePaths([]) } }, t('Összes unstage'))),
     stagedList);
   const split = h('div.splitter-h');
-  const left = h('div.changes-left', conflictList, unstagedWrap, split, stagedWrap, commitBox(r));
+  // Handle on top of the commit box: drag up to make the message field taller.
+  const cbox = commitBox(r);
+  const commitSplit = h('div.splitter-h.commit-split', { title: t('Húzd felfelé a commit üzenet mező nagyításához') });
+  splitter(commitSplit, cbox.querySelector('textarea'), { vertical: false, invert: true, min: 90, max: Math.round(innerHeight * 0.65), key: 'gs.commitH' });
+  const left = h('div.changes-left', conflictList, unstagedWrap, split, stagedWrap, commitSplit, cbox);
   splitter(split, unstagedWrap, { vertical: false, min: 60, max: 1200, key: 'gs.unstagedH' });
   const vs = h('div.splitter-v');
   const right = h('div.changes-right', dv.el);

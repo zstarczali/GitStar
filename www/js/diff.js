@@ -166,25 +166,34 @@ export class DiffView {
    * }
    */
   /**
-   * soft: same file reloaded with other options (WS, context) - the current
-   * diff stays on screen until the new one arrives, so nothing blinks.
+   * The current diff (and its toolbar) stays on screen, blocked, until the new
+   * one arrives, so nothing blinks. soft = same file with other options (WS,
+   * context): never shows the loading text. Another file: the loading text
+   * only appears if loading takes longer than 200 ms.
    */
   async show(opts, soft = false) {
     this.opts = opts;
     this.sel.clear();
     this.token = Symbol();
     const tok = this.token;
-    if (soft) this.el.classList.add('busy');
-    else this.el.replaceChildren(this.toolbar(null), h('div.diff-body', h('div.diff-msg', t('Betöltés…'))));
+    const loading = () => this.el.replaceChildren(this.toolbar(null, true), h('div.diff-body', h('div.diff-msg', t('Betöltés…'))));
+    let timer = null;
+    this.el.classList.add('busy');
+    if (!soft) {
+      if (this.el.querySelector('.diff-toolbar')) timer = setTimeout(() => { if (tok === this.token) loading(); }, 200);
+      else loading();
+    }
     let res;
     try {
       res = await opts.load(this.prefs.context, this.prefs.ignoreWs);
     } catch (e) {
+      clearTimeout(timer);
       if (tok !== this.token) return;
       this.el.classList.remove('busy');
       this.el.replaceChildren(this.toolbar(null), h('div.diff-body', h('div.diff-msg', String(e))));
       return;
     }
+    clearTimeout(timer);
     if (tok !== this.token) return;
     this.el.classList.remove('busy');
     this.result = res;
@@ -200,7 +209,8 @@ export class DiffView {
     else this.render();
   }
 
-  toolbar(file) {
+  /** loading: the new diff is on its way - keep the buttons in place, disabled. */
+  toolbar(file, loading = false) {
     const o = this.opts || {};
     const p = this.prefs;
     let adds = 0, dels = 0;
@@ -214,10 +224,10 @@ export class DiffView {
       file ? h('span', h('span.stat-a', `+${adds}`), ' ', h('span.stat-d', `−${dels}`)) : null,
       h('span.grow'),
       ...(o.extra || []),
-      o.onAi && this.result && !this.result.binary ? h('button.btn.sm.ai', { title: t('A diff elemzése AI-jal'), on: { click: () => o.onAi(this.result.text) } }, icon('sparkle'), 'AI') : null,
-      file && !o.conflict ? [
-        h('button.icon-btn', { title: t('Előző változás (Alt+↑)'), on: { click: () => this.jump(-1) } }, icon('up')),
-        h('button.icon-btn', { title: t('Következő változás (Alt+↓)'), on: { click: () => this.jump(1) } }, icon('down')),
+      o.onAi && (loading || (this.result && !this.result.binary)) ? h('button.btn.sm.ai', { disabled: loading || null, title: t('A diff elemzése AI-jal'), on: { click: () => o.onAi(this.result.text) } }, icon('sparkle'), 'AI') : null,
+      (file || loading) && !o.conflict ? [
+        h('button.icon-btn', { disabled: !file || null, title: t('Előző változás (Alt+↑)'), on: { click: () => this.jump(-1) } }, icon('up')),
+        h('button.icon-btn', { disabled: !file || null, title: t('Következő változás (Alt+↓)'), on: { click: () => this.jump(1) } }, icon('down')),
       ] : null,
       !o.conflict ? ctxSel : null,
       !o.conflict ? h('label.chk', { title: t('Whitespace változások figyelmen kívül hagyása') },
