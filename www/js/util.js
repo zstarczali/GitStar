@@ -94,6 +94,7 @@ const P = {
   trash: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  pr: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/><path d="M6 7v10"/><path d="M18 17V9a3 3 0 0 0-3-3h-4"/><path d="m13 3-3 3 3 3"/>',
 };
 
 
@@ -207,6 +208,11 @@ export async function formDlg(title, fields, okLabel = 'OK', desc) {
       if (f.type === 'textarea') el = h('textarea.inp', { rows: f.rows || 4, placeholder: f.placeholder || '' });
       else if (f.type === 'select') {
         el = h('select.inp', f.options.map((o) => h('option', { value: o.value ?? o }, o.label ?? o)));
+      } else if (f.type === 'combo') {
+        const c = combo({ value: f.value ?? '', options: f.options || [], placeholder: f.placeholder || '' });
+        els[f.name] = c.input;
+        body.push(h('label.field', h('span', f.label), c, f.note ? h('span.note', f.note) : null));
+        continue;
       } else el = h('input.inp', { type: f.type || 'text', placeholder: f.placeholder || '', spellcheck: 'false' });
       el.value = f.value ?? '';
       body.push(h('label.field', h('span', f.label), el, f.note ? h('span.note', f.note) : null));
@@ -219,6 +225,93 @@ export async function formDlg(title, fields, okLabel = 'OK', desc) {
     return o;
   };
   return modal({ title, body, buttons: [{ label: t('Mégse'), value: null }, { label: okLabel, value: collect, primary: true }] });
+}
+
+// ── combo box: a text input that also offers a list (branches, tags…) ──
+// options: strings or { value, label?, group? }. Typing filters the list; the
+// ▾ button or a click shows everything. Returns the wrapper; `.input` is the <input>.
+export function combo({ value = '', options = [], placeholder = '', onInput, onEnter } = {}) {
+  const opts = options.map((o) => (typeof o === 'string' ? { value: o } : o));
+  const input = h('input.inp', { value, placeholder, spellcheck: 'false', autocomplete: 'off' });
+  const btn = h('button.combo-btn', { type: 'button', tabindex: '-1', title: '▾' }, '▾');
+  const wrap = h('div.combo', input, btn);
+  wrap.input = input;
+  let list = null, items = [], active = -1;
+
+  const close = () => {
+    if (!list) return;
+    list.remove(); list = null; active = -1;
+    window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('resize', close);
+    document.removeEventListener('scroll', onScroll, true);
+  };
+  const onScroll = (e) => { if (list && !list.contains(e.target)) close(); };
+  const pick = (v) => {
+    input.value = v;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    close();
+    input.focus();
+  };
+  const mark = (i) => {
+    items.forEach((el, k) => el.classList.toggle('on', k === i));
+    active = i;
+    if (items[i]) items[i].scrollIntoView({ block: 'nearest' });
+  };
+  const open = (all) => {
+    const q = all ? '' : input.value.trim().toLowerCase();
+    const shown = opts.filter((o) => !q || o.value.toLowerCase().includes(q) || (o.label || '').toLowerCase().includes(q));
+    if (!list) {
+      list = h('div.combo-list');
+      document.body.append(list);
+      window.addEventListener('keydown', onKey, true);
+      window.addEventListener('resize', close);
+      document.addEventListener('scroll', onScroll, true);
+    }
+    const kids = [];
+    items = [];
+    let group;
+    for (const o of shown) {
+      if (o.group && o.group !== group) { group = o.group; kids.push(h('div.combo-g', group)); }
+      const el = h('div.combo-i', { dataset: { v: o.value }, on: { mousedown: (e) => { e.preventDefault(); pick(o.value); } } }, o.label || o.value);
+      if (o.value === input.value) el.classList.add('cur');
+      items.push(el); kids.push(el);
+    }
+    if (!kids.length) kids.push(h('div.combo-none', t('Nincs találat')));
+    list.replaceChildren(...kids);
+    const r = input.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 8;
+    const up = below < 160 && r.top > below;
+    Object.assign(list.style, { left: r.left + 'px', width: Math.max(r.width + btn.offsetWidth, 180) + 'px',
+      maxHeight: Math.min(280, (up ? r.top : below) - 8) + 'px',
+      top: up ? '' : r.bottom + 2 + 'px', bottom: up ? window.innerHeight - r.top + 2 + 'px' : '' });
+    mark(all ? items.findIndex((el) => el.classList.contains('cur')) : -1);
+  };
+  // window capture runs before the dialog's own Enter/Escape handling
+  function onKey(e) {
+    if (document.activeElement !== input) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      if (!items.length) return;
+      mark(e.key === 'ArrowDown' ? (active + 1) % items.length : (active <= 0 ? items.length : active) - 1);
+    } else if (e.key === 'Enter' && active >= 0) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      pick(items[active].dataset.v);
+    } else if (e.key === 'Enter') {
+      close();
+    } else if (e.key === 'Escape') {
+      e.preventDefault(); e.stopImmediatePropagation();
+      close();
+    } else if (e.key === 'Tab') close();
+  }
+  input.addEventListener('input', (e) => { onInput?.(input.value); if (e.isTrusted) open(false); });
+  input.addEventListener('keydown', (e) => {
+    if (!list && e.key === 'ArrowDown' && e.altKey === false) { e.preventDefault(); open(true); }
+    else if (!list && e.key === 'Enter') onEnter?.(e);
+  });
+  input.addEventListener('mousedown', () => { if (!list) setTimeout(() => open(true)); });
+  input.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== input) close(); }, 0));
+  btn.addEventListener('mousedown', (e) => { e.preventDefault(); if (list) close(); else { input.focus(); open(true); } });
+  return wrap;
 }
 
 // ── context menu ──

@@ -6,8 +6,15 @@ const MAX_LANES = 14;
 
 export const COLORS = ['#4c8dff', '#e5534b', '#3fb950', '#d29922', '#a371f7', '#39c5cf', '#f778ba', '#e3793a', '#8ddb5a', '#6e7bff', '#db61a2', '#57ab5a'];
 const AI_COLORS = ['#22d3ee', '#a855f7', '#ec4899', '#2ef2c4', '#f59e0b', '#818cf8', '#f472b6', '#34d399', '#c084fc', '#38bdf8', '#fb7185', '#facc15'];
+// 8-bit home computer palette for the retro theme
+const RETRO_COLORS = ['#ffe066', '#8ee68e', '#ff7a7a', '#7fd6ff', '#ffb347', '#d68cff', '#ffffff', '#70e0c0'];
+// calm, saturated colours for the light glass theme
+// bright colours for the dark glass theme
+const MODERN_DARK_COLORS = ['#8b84ff', '#3dd68c', '#ff6b70', '#f5b452', '#c084fc', '#38bdf8', '#f472b6', '#2dd4bf', '#fb923c', '#a78bfa'];
+const MODERN_COLORS = ['#635bff', '#12a36e', '#e5484d', '#f59e0b', '#a259ff', '#0ea5e9', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6'];
 export const laneColor = (i) => {
-  const pal = document.documentElement.dataset.theme === 'ai' ? AI_COLORS : COLORS;
+  const th = document.documentElement.dataset.theme;
+  const pal = th === 'ai' ? AI_COLORS : th === 'retro' ? RETRO_COLORS : th === 'modern' ? MODERN_COLORS : th === 'modern-dark' ? MODERN_DARK_COLORS : COLORS;
   return pal[i % pal.length];
 };
 

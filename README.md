@@ -15,7 +15,7 @@ GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style int
 - **Branches, remotes, tags, and stashes** — Check out branches with optional stashing, create, rename, or delete local and remote branches, and set upstreams. Merge with fast-forward, no-fast-forward, fast-forward-only, or squash. Rebase, cherry-pick, revert, or reset in soft, mixed, or hard mode. Fetch, pull with merge, rebase, or fast-forward-only and optional autostash, and push with upstream, force-with-lease, or tag options. Create, push, or delete tags, push, apply, pop, drop, or branch from stashes, and add, edit, or remove remotes.
 - **In-progress operations** — Continue, skip, or abort a merge, rebase, cherry-pick, or revert where Git supports it. Resolve conflicts using ours, theirs, or manual edits.
 - **Git console** — Run Git commands with command history and view output from app operations.
-- **Themes and layout** — Choose dark, light, AI neon, or system themes, adjust the font size, and resize panels. The neon theme includes gradients, animated lines, and custom icons.
+- **Themes and layout** — Choose dark, light, AI neon, retro, modern, modern dark, or system themes, adjust the font size, and resize panels. The neon theme includes gradients, animated lines, and custom icons; the retro theme looks like an 8-bit home computer on a CRT (monospace font, scanlines, striped toolbar, blinking cursor); the modern theme is light frosted glass on a soft pastel gradient (rounded controls, gradient buttons, pill toggles), and modern dark is the same glass look on a deep aurora gradient.
 - **English and Hungarian** — Set the interface language to automatic, Hungarian, or English in Settings. Backend errors use the selected language.
 
 ## Running from source
