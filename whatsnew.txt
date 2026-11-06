@@ -1,15 +1,18 @@
 GitStar - What's new
 ====================
 
+0.3.3
+-----
+- AI through the Claude Code CLI: choose "Claude Code CLI" as AI provider
+  in Settings and the AI features use your own Claude login (Pro/Max
+  subscription), no API key needed.
+- The About dialog is wider, so its buttons fit on macOS too.
+
 0.3.2
 -----
 - Dropdown lists are drawn in the colours of the current theme in every
   theme: readable items and a clear highlight (they were grey on grey in
   Modern dark).
-- AI through the Claude Code CLI: choose "Claude Code CLI" as AI provider
-  in Settings and the AI features use your own Claude login (Pro/Max
-  subscription), no API key needed.
-- The About dialog is wider, so its buttons fit on macOS too.
 
 0.3.1
 -----
