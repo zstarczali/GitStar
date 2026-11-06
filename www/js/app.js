@@ -1,0 +1,1574 @@
+// GitStar – main UI.
+
+import {
+  invoke, h, icon, toast, modal, confirmDlg, formDlg, contextMenu, relTime, fmtDate, avatar,
+  short, basename, dirname, splitter, markdown, shellSplit, debounce, esc,
+} from './util.js';
+import { DiffView, renderBlame } from './diff.js';
+import { graphSvg, graphWidth, ROW_H } from './graph.js';
+
+// ───────────────────────── state ─────────────────────────
+
+const S = {
+  settings: null,
+  repos: [],      // Repo[]
+  active: -1,
+  busy: 0,
+  busyLabel: '',
+};
+
+class Repo {
+  constructor(info) {
+    this.path = info.path;
+    this.name = info.name;
+    this.view = 'changes';
+    this.status = null;
+    this.refs = null;
+    this.commits = [];
+    this.selCommit = null;
+    this.commitDetails = null;
+    this.selFile = null;          // {list: 'staged'|'unstaged'|'conflicted'|'commit'|'compare', path}
+    this.multi = { staged: new Set(), unstaged: new Set() };
+    this.logRev = '';             // '' = all branches
+    this.logPath = '';            // file history filter
+    this.matches = null;          // Set of hashes from search
+    this.search = '';
+    this.searchMode = 'message';
+    this.commitMsg = '';
+    this.amend = false;
+    this.compare = { from: '', to: '', mergeBase: true, result: null };
+    this.sideFilter = '';
+    this.closedSecs = new Set();
+    this.blame = null;
+  }
+}
+
+const cur = () => S.repos[S.active] || null;
+const prefs = () => ({
+  mode: S.settings.diff_mode, context: S.settings.diff_context, ignoreWs: S.settings.diff_ignore_ws, wrap: S.settings.diff_wrap,
+});
+const diffView = () => {
+  if (!S._diff) {
+    S._diff = new DiffView(prefs(), (p) => {
+      Object.assign(S.settings, { diff_mode: p.mode, diff_context: p.context, diff_ignore_ws: p.ignoreWs, diff_wrap: p.wrap });
+      saveSettings();
+    });
+  }
+  return S._diff;
+};
+
+async function saveSettings() {
+  try { await invoke('save_settings', { settings: S.settings }); } catch (e) { toast(e, 'err'); }
+}
+
+function persistRepos() {
+  S.settings.open_repos = S.repos.map((r) => r.path);
+  S.settings.active_repo = cur()?.path || '';
+  saveSettings();
+}
+
+// ───────────────────────── theme ─────────────────────────
+
+function applyTheme() {
+  let t = S.settings.theme;
+  if (t === 'system') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  document.documentElement.dataset.theme = t;
+  document.documentElement.style.setProperty('--font-size', (S.settings.font_size || 13) + 'px');
+}
+
+function toggleTheme() {
+  const now = document.documentElement.dataset.theme;
+  S.settings.theme = now === 'dark' ? 'light' : 'dark';
+  applyTheme();
+  saveSettings();
+  renderToolbar();
+}
+
+// ───────────────────────── git helpers ─────────────────────────
+
+function setBusy(on, label = '') {
+  S.busy += on ? 1 : -1;
+  if (on) S.busyLabel = label;
+  renderStatusbar();
+}
+
+/** Runs a git command with a busy indicator; refreshes after. */
+async function op(label, args, { quiet = false, refresh = true, repo = cur() } = {}) {
+  if (!repo) return null;
+  setBusy(true, label);
+  try {
+    const out = await invoke('git_op', { repo: repo.path, args });
+    if (!quiet) toast(out.trim() ? `${label}\n${trimOut(out)}` : `${label}: kész`, 'ok');
+    consoleLog(repo, args, out, false);
+    return out;
+  } catch (e) {
+    toast(`${label} sikertelen:\n${e}`, 'err');
+    consoleLog(repo, args, String(e), true);
+    return null;
+  } finally {
+    setBusy(false);
+    if (refresh) await refreshAll(repo);
+  }
+}
+
+const trimOut = (s) => { const l = s.trim().split('\n'); return l.length > 14 ? l.slice(-14).join('\n') : l.join('\n'); };
+
+async function call(cmd, args, label) {
+  try { return await invoke(cmd, args); } catch (e) { toast((label ? label + ':\n' : '') + e, 'err'); throw e; }
+}
+
+async function refreshStatus(repo = cur()) {
+  if (!repo) return;
+  try {
+    repo.status = await invoke('status', { repo: repo.path });
+  } catch (e) {
+    repo.status = null;
+    toast(e, 'err');
+  }
+}
+
+async function refreshRefs(repo = cur()) {
+  if (!repo) return;
+  try { repo.refs = await invoke('refs', { repo: repo.path }); } catch (e) { toast(e, 'err'); }
+}
+
+async function refreshLog(repo = cur()) {
+  if (!repo) return;
+  try {
+    repo.commits = await invoke('log', { repo: repo.path, req: { limit: S.settings.log_limit || 1500, rev: repo.logRev || null, path: repo.logPath || null } });
+  } catch (e) { toast(e, 'err'); repo.commits = []; }
+}
+
+async function refreshAll(repo = cur()) {
+  if (!repo) return;
+  await Promise.all([refreshStatus(repo), refreshRefs(repo), refreshLog(repo)]);
+  if (repo === cur()) renderAll(true);
+}
+
+// ───────────────────────── rendering root ─────────────────────────
+
+function renderAll(keepDiff = false) {
+  renderTabs();
+  renderToolbar();
+  renderSidebar();
+  renderContent(keepDiff);
+  renderStatusbar();
+}
+
+function renderTabs() {
+  const el = document.getElementById('tabs');
+  el.replaceChildren(
+    ...S.repos.map((r, i) => h('div.tab' + (i === S.active ? '.active' : ''), {
+      title: r.path,
+      on: {
+        mousedown: (e) => { if (e.button === 1) { e.preventDefault(); closeRepo(i); } },
+        click: () => switchRepo(i),
+        contextmenu: (e) => contextMenu(e, [
+          { label: 'Megnyitás Intézőben', icon: 'folder', action: () => invoke('reveal_in_explorer', { path: r.path }) },
+          { label: 'Terminál itt', icon: 'terminal', action: () => invoke('open_terminal', { path: r.path }) },
+          { label: 'Útvonal másolása', icon: 'copy', action: () => copy(r.path) },
+          '-',
+          { label: 'Bezárás', icon: 'close', action: () => closeRepo(i) },
+        ]),
+      },
+    }, icon('folder'), h('span.name', r.name),
+    h('button.x', { title: 'Bezárás', on: { click: (e) => { e.stopPropagation(); closeRepo(i); } } }, icon('close')))),
+    h('button.tab-add', { title: 'Repository megnyitása (Ctrl+O)', on: { click: () => { S.active = -1; renderAll(); } } }, icon('plus')),
+  );
+}
+
+function tb(label, ic, action, { disabled, title, badge, spin } = {}) {
+  return h('button.tb', { disabled: disabled || null, title: title || label, on: { click: action } },
+    icon(ic, spin ? 'spin' : ''), h('span', label), badge ? h('span.badge', badge) : null);
+}
+
+function renderToolbar() {
+  const el = document.getElementById('toolbar');
+  const r = cur();
+  const dark = document.documentElement.dataset.theme === 'dark';
+  const st = r?.status;
+  const no = !r;
+  el.replaceChildren(
+    r ? h('div.repo-title',
+      h('span.rn', r.name),
+      h('span.rb', icon('branch'), st ? (st.detached ? `HEAD (${short(st.head)})` : st.branch) : '…',
+        st && st.upstream ? h('span', { title: st.upstream }, `${st.ahead ? '↑' + st.ahead : ''} ${st.behind ? '↓' + st.behind : ''}`) : null)) : h('div.repo-title', h('span.rn', 'GitStar')),
+    h('div.tb-sep'),
+    tb('Fetch', 'fetch', () => doFetch(), { disabled: no }),
+    tb('Pull', 'pull', () => pullDlg(), { disabled: no, badge: st?.behind || null }),
+    tb('Push', 'push', () => pushDlg(), { disabled: no, badge: st?.ahead || null }),
+    h('div.tb-sep'),
+    tb('Ág', 'branch', () => newBranchDlg(), { disabled: no, title: 'Új ág' }),
+    tb('Merge', 'merge', () => mergeDlg(), { disabled: no }),
+    tb('Stash', 'stash', () => stashDlg(), { disabled: no }),
+    tb('Pop', 'pop', () => stashPop(), { disabled: no || !r?.refs?.stashes?.length, title: 'Legutóbbi stash visszaállítása' }),
+    h('div.tb-sep'),
+    tb('Terminál', 'terminal', () => invoke('open_terminal', { path: r.path }), { disabled: no }),
+    tb('Mappa', 'folder', () => invoke('reveal_in_explorer', { path: r.path }), { disabled: no }),
+    tb('Konzol', 'console', () => toggleConsole(), { disabled: no, title: 'Git konzol (Ctrl+`)' }),
+    h('div.tb-spacer'),
+    tb(dark ? 'Világos' : 'Sötét', dark ? 'sun' : 'moon', toggleTheme, { title: 'Téma váltása' }),
+    tb('Beállítások', 'settings', () => settingsDlg()),
+  );
+}
+
+function renderStatusbar() {
+  const el = document.getElementById('statusbar');
+  const r = cur();
+  const st = r?.status;
+  el.replaceChildren(
+    S.busy ? h('span', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, icon('refresh', 'spin'), S.busyLabel || 'Folyamatban…') : h('span', r ? r.path : 'Nincs megnyitott repository'),
+    st?.operation ? h('span.op', `⚠ ${opName(st.operation)} folyamatban`) : null,
+    h('span.grow'),
+    st ? h('span', `${st.staged.length} staged · ${st.unstaged.length} változott${st.conflicted.length ? ` · ${st.conflicted.length} konfliktus` : ''}`) : null,
+    r ? h('span', `${r.commits.length} commit`) : null,
+    h('span', `AI: ${S.settings?.anthropic_api_key ? S.settings.ai_model : 'nincs kulcs'}`),
+  );
+}
+
+const opName = (o) => ({ merge: 'Merge', rebase: 'Rebase', 'cherry-pick': 'Cherry-pick', revert: 'Revert', bisect: 'Bisect' }[o] || o);
+
+// ───────────────────────── sidebar ─────────────────────────
+
+function renderSidebar() {
+  const el = document.getElementById('sidebar');
+  const r = cur();
+  if (!r) { el.replaceChildren(h('div.empty', icon('star'), 'Nyiss meg egy repository-t')); return; }
+  const st = r.status;
+  const changes = st ? st.staged.length + st.unstaged.length + st.conflicted.length : 0;
+  const nav = h('div.side-nav',
+    h('div.nav-item' + (r.view === 'changes' ? '.active' : ''), { on: { click: () => setView('changes') } }, icon('changes'), 'Lokális változások', changes ? h('span.count', changes) : null),
+    h('div.nav-item' + (r.view === 'history' && !r.logRev && !r.logPath ? '.active' : ''), { on: { click: () => { r.logRev = ''; r.logPath = ''; setView('history', true); } } }, icon('history'), 'Összes commit'),
+    h('div.nav-item' + (r.view === 'compare' ? '.active' : ''), { on: { click: () => setView('compare') } }, icon('compare'), 'Összehasonlítás'),
+  );
+  const filter = h('input.inp.side-filter', {
+    placeholder: 'Szűrés…', value: r.sideFilter,
+    on: { input: debounce((e) => { r.sideFilter = e.target.value; renderSideTree(tree, r); }, 120) },
+  });
+  const tree = h('div.side-tree');
+  el.replaceChildren(nav, filter, tree);
+  renderSideTree(tree, r);
+}
+
+function section(r, id, title, count, body, actions) {
+  const closed = r.closedSecs.has(id);
+  return h('div.sec' + (closed ? '.closed' : ''),
+    h('div.sec-h', { on: { click: (e) => { if (e.target.closest('.act')) return; closed ? r.closedSecs.delete(id) : r.closedSecs.add(id); renderSidebar(); } } },
+      icon('chev', 'chev'), title, ...(actions || []), h('span.cnt', count)),
+    h('div.sec-b', body));
+}
+
+/** Groups names by "/" into a folder tree. */
+function treeify(items, getName) {
+  const root = { dirs: new Map(), leaves: [] };
+  for (const it of items) {
+    const parts = getName(it).split('/');
+    let node = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!node.dirs.has(parts[i])) node.dirs.set(parts[i], { dirs: new Map(), leaves: [] });
+      node = node.dirs.get(parts[i]);
+    }
+    node.leaves.push([parts[parts.length - 1], it]);
+  }
+  return root;
+}
+
+function renderTree(node, lvl, leafFn, out, keyPrefix, r) {
+  for (const [name, sub] of node.dirs) {
+    const key = keyPrefix + '/' + name;
+    const closed = r.closedSecs.has(key);
+    out.push(h('div.ref.folder', { style: { '--lvl': lvl }, on: { click: () => { closed ? r.closedSecs.delete(key) : r.closedSecs.add(key); renderSidebar(); } } },
+      icon('chev', closed ? 'rot' : ''), icon('folder'), h('span.nm', name)));
+    if (!closed) renderTree(sub, lvl + 1, leafFn, out, key, r);
+  }
+  for (const [name, it] of node.leaves) out.push(leafFn(name, it, lvl));
+}
+
+function renderSideTree(tree, r) {
+  const refs = r.refs;
+  if (!refs) { tree.replaceChildren(); return; }
+  const q = r.sideFilter.toLowerCase();
+  const f = (n) => !q || n.toLowerCase().includes(q);
+
+  // local branches
+  const locals = refs.local.filter((b) => f(b.name));
+  const lout = [];
+  renderTree(treeify(locals, (b) => b.name), 0, (name, b, lvl) => h('div.ref' + (b.current ? '.current' : '') + (r.view === 'history' && r.selCommit === b.hash ? '.sel' : ''), {
+    style: { '--lvl': lvl }, title: b.upstream ? `${b.name} → ${b.upstream}` : b.name,
+    on: {
+      click: () => showRefInHistory(b.hash, b.name),
+      dblclick: () => checkout(b.name),
+      contextmenu: (e) => localBranchMenu(e, b),
+    },
+  }, b.current ? h('span.cur-dot') : icon('branch'), h('span.nm', name),
+  b.gone ? h('span.gone', 'gone') : (b.ahead || b.behind) ? h('span.ab', b.ahead ? `↑${b.ahead}` : null, b.behind ? `↓${b.behind}` : null) : null), lout, 'L', r);
+
+  // remotes
+  const rout = [];
+  for (const rm of refs.remotes) {
+    const brs = refs.remote.filter((b) => b.name.startsWith(rm.name + '/') && f(b.name));
+    const key = 'R/' + rm.name;
+    const closed = r.closedSecs.has(key);
+    rout.push(h('div.ref', { title: rm.url, on: {
+      click: () => { closed ? r.closedSecs.delete(key) : r.closedSecs.add(key); renderSidebar(); },
+      contextmenu: (e) => contextMenu(e, [
+        { label: `Fetch: ${rm.name}`, icon: 'fetch', action: () => op(`Fetch ${rm.name}`, ['fetch', '--prune', rm.name]) },
+        { label: 'URL másolása', icon: 'copy', action: () => copy(rm.url) },
+        { label: 'URL módosítása…', icon: 'changes', action: async () => {
+          const v = await formDlg('Remote URL', [{ name: 'url', label: rm.name, value: rm.url }], 'Mentés');
+          if (v) op('Remote URL', ['remote', 'set-url', rm.name, v.url]);
+        } },
+        '-',
+        { label: 'Remote törlése', icon: 'trash', danger: true, action: async () => {
+          if (await confirmDlg('Remote törlése', `Törlöd a(z) "${rm.name}" remote-ot?`, 'Törlés', true)) op('Remote törlése', ['remote', 'remove', rm.name]);
+        } },
+      ]),
+    } }, icon('cloud'), h('span.nm', rm.name)));
+    if (!closed) {
+      renderTree(treeify(brs, (b) => b.name.slice(rm.name.length + 1)), 1, (name, b, lvl) => h('div.ref' + (r.view === 'history' && r.selCommit === b.hash ? '.sel' : ''), {
+        style: { '--lvl': lvl }, title: b.name,
+        on: { click: () => showRefInHistory(b.hash, b.name), dblclick: () => checkoutRemote(b.name), contextmenu: (e) => remoteBranchMenu(e, b, rm.name) },
+      }, icon('branch'), h('span.nm', name)), rout, key, r);
+    }
+  }
+
+  const tout = refs.tags.filter((t) => f(t.name)).map((t) => h('div.ref', {
+    title: t.name, on: { click: () => showRefInHistory(t.hash, t.name), contextmenu: (e) => tagMenu(e, t) },
+  }, icon('tag'), h('span.nm', t.name)));
+
+  const sout = refs.stashes.filter((s) => f(s.message)).map((s) => h('div.ref', {
+    title: `${s.name}: ${s.message}`, on: { click: () => showStash(s), contextmenu: (e) => stashMenu(e, s) },
+  }, icon('stash'), h('span.nm', s.message.replace(/^(WIP )?[Oo]n [^:]+: /, '')), h('span.ab', relTime(s.time))));
+
+  const addBtn = (title, fn) => h('button.act', { title, on: { click: (e) => { e.stopPropagation(); fn(); } } }, icon('plus'));
+  tree.replaceChildren(
+    section(r, 'branches', 'Ágak', locals.length, lout, [addBtn('Új ág', () => newBranchDlg())]),
+    section(r, 'remotes', 'Remote-ok', refs.remote.length, rout, [addBtn('Remote hozzáadása', () => addRemoteDlg())]),
+    section(r, 'tags', 'Tagek', tout.length, tout, [addBtn('Új tag', () => tagDlg('HEAD'))]),
+    section(r, 'stashes', 'Stash-ek', sout.length, sout, [addBtn('Új stash', () => stashDlg())]),
+  );
+}
+
+function setView(v, reload) {
+  const r = cur();
+  if (!r) return;
+  r.view = v;
+  r.blame = null;
+  if (reload) refreshLog(r).then(() => renderAll());
+  else renderAll();
+}
+
+// ───────────────────────── content ─────────────────────────
+
+function renderContent(keep) {
+  const el = document.getElementById('content');
+  const r = cur();
+  if (!r) return renderWelcome(el);
+  if (r.view === 'history') return renderHistory(el, r, keep);
+  if (r.view === 'compare') return renderCompare(el, r, keep);
+  return renderChanges(el, r, keep);
+}
+
+// ── welcome ──
+function renderWelcome(el) {
+  const recent = (S.settings.recent_repos || []).filter((p) => !S.repos.some((r) => r.path === p));
+  el.replaceChildren(h('div.welcome', h('div.welcome-box',
+    h('h1', h('img', { src: 'img/icon.svg', alt: '' }), 'GitStar'),
+    h('div.lead', 'Git kliens AI commit üzenetekkel és vizuális diff-fel.'),
+    h('div.actions',
+      h('button.btn.primary', { on: { click: () => openRepoDlg() } }, icon('folder'), 'Megnyitás…'),
+      h('button.btn', { on: { click: () => cloneDlg() } }, icon('globe'), 'Klónozás…'),
+      h('button.btn', { on: { click: () => initDlg() } }, icon('plus'), 'Új repository…')),
+    recent.length ? h('div', h('div.sec-h', 'Legutóbbi'), h('div.recent', recent.map((p) => h('div.recent-item', { on: { click: () => openRepo(p) } },
+      icon('folder'), h('div', h('div', basename(p)), h('div.p', p)),
+      h('button.icon-btn.x', { title: 'Eltávolítás a listából', on: { click: (e) => { e.stopPropagation(); S.settings.recent_repos = S.settings.recent_repos.filter((x) => x !== p); saveSettings(); renderContent(); } } }, icon('close')))))) : null,
+  )));
+}
+
+// ── changes ──
+function opBanner(r) {
+  const st = r.status;
+  if (!st?.operation) return null;
+  const o = st.operation;
+  const cont = { merge: ['merge', '--continue'], rebase: ['rebase', '--continue'], 'cherry-pick': ['cherry-pick', '--continue'], revert: ['revert', '--continue'] }[o];
+  const abort = { merge: ['merge', '--abort'], rebase: ['rebase', '--abort'], 'cherry-pick': ['cherry-pick', '--abort'], revert: ['revert', '--abort'], bisect: ['bisect', 'reset'] }[o];
+  return h('div.op-banner', h('b', `${opName(o)} folyamatban.`),
+    st.conflicted.length ? `${st.conflicted.length} konfliktusos fájl vár feloldásra.` : 'Nincs konfliktus – folytatható.',
+    h('span', { style: { flex: 1 } }),
+    cont && o !== 'merge' ? h('button.btn.sm.primary', { disabled: st.conflicted.length > 0 || null, on: { click: () => op(`${opName(o)} folytatása`, ['-c', 'core.editor=true', ...cont]) } }, 'Folytatás') : null,
+    o === 'rebase' ? h('button.btn.sm', { on: { click: () => op('Rebase skip', ['rebase', '--skip']) } }, 'Kihagyás') : null,
+    abort ? h('button.btn.sm', { on: { click: async () => { if (await confirmDlg('Megszakítás', `Megszakítod: ${opName(o)}?`, 'Megszakítás', true)) op(`${opName(o)} megszakítása`, abort); } } }, 'Megszakítás') : null);
+}
+
+function fileRow(r, list, f, onSelect) {
+  const sel = r.selFile && r.selFile.list === list && r.selFile.path === f.path;
+  const multi = r.multi[list]?.has(f.path);
+  const dir = dirname(f.path);
+  const stLetter = f.status === '?' ? 'A' : f.status;
+  const actions = [];
+  if (list === 'unstaged') {
+    actions.push(h('button.icon-btn', { title: 'Stage', on: { click: (e) => { e.stopPropagation(); stagePaths([f.path]); } } }, icon('plus')));
+    actions.push(h('button.icon-btn', { title: 'Elvetés', on: { click: (e) => { e.stopPropagation(); discardFiles([f]); } } }, icon('undo')));
+  } else if (list === 'staged') {
+    actions.push(h('button.icon-btn', { title: 'Unstage', on: { click: (e) => { e.stopPropagation(); unstagePaths([f.path]); } } }, icon('minus')));
+  }
+  return h('div.file' + (sel || multi ? '.sel' : ''), {
+    title: f.old_path && f.status !== 'U' ? `${f.old_path} → ${f.path}` : f.path,
+    on: {
+      click: (e) => {
+        if (r.multi[list] && (e.ctrlKey || e.metaKey)) {
+          const m = r.multi[list];
+          if (m.size === 0 && r.selFile?.list === list) m.add(r.selFile.path);
+          m.has(f.path) ? m.delete(f.path) : m.add(f.path);
+          renderContent(true);
+          return;
+        }
+        if (r.multi[list]) { r.multi.staged.clear(); r.multi.unstaged.clear(); }
+        onSelect(f);
+      },
+      dblclick: () => { if (list === 'unstaged') stagePaths([f.path]); else if (list === 'staged') unstagePaths([f.path]); },
+      contextmenu: (e) => fileMenu(e, r, list, f),
+    },
+  }, h('span.st.st-' + stLetter, { title: statusName(f.status) }, stLetter === '?' ? 'A' : stLetter),
+  h('span.fn', basename(f.path)), dir ? h('span.dir', dir) : h('span', { style: { flex: 1 } }),
+  f.added != null || f.deleted != null ? h('span.stats', f.added != null ? h('span.a', `+${f.added}`) : null, f.deleted != null ? h('span.d', `−${f.deleted}`) : null) : null,
+  actions.length ? h('span.fa', actions) : null);
+}
+
+const statusName = (s) => ({ M: 'Módosítva', A: 'Új', D: 'Törölve', R: 'Átnevezve', C: 'Másolva', T: 'Típus változott', U: 'Konfliktus', '?': 'Nem követett (új)' }[s] || s);
+
+function renderChanges(el, r, keep) {
+  const st = r.status;
+  if (!st) { el.replaceChildren(h('div.empty', 'Állapot betöltése…')); return; }
+  const dv = diffView();
+  const selected = (list) => (r.multi[list].size ? [...r.multi[list]] : r.selFile?.list === list ? [r.selFile.path] : []);
+
+  const unstagedList = h('div.file-list', st.unstaged.map((f) => fileRow(r, 'unstaged', f, (x) => selectChange(r, 'unstaged', x))));
+  const stagedList = h('div.file-list', st.staged.map((f) => fileRow(r, 'staged', f, (x) => selectChange(r, 'staged', x))));
+  const conflictList = st.conflicted.length ? h('div.file-list-wrap', { style: { flex: 'none', maxHeight: '30%' } },
+    h('div.pane-h', icon('info'), 'Konfliktusok', h('span.sub', st.conflicted.length)),
+    h('div.file-list', st.conflicted.map((f) => fileRow(r, 'conflicted', f, (x) => selectChange(r, 'conflicted', x))))) : null;
+
+  const unstagedWrap = h('div.file-list-wrap', { style: { flex: '1' } },
+    h('div.pane-h', 'Unstaged', h('span.sub', st.unstaged.length), h('span.grow'),
+      h('button.btn.sm', { disabled: !st.unstaged.length || null, title: 'Kijelöltek stage-elése', on: { click: () => stagePaths(selected('unstaged')) } }, 'Stage'),
+      h('button.btn.sm', { disabled: !st.unstaged.length || null, on: { click: () => stageAll() } }, 'Összes stage')),
+    unstagedList);
+  const stagedWrap = h('div.file-list-wrap', { style: { flex: '1' } },
+    h('div.pane-h', 'Staged', h('span.sub', st.staged.length), h('span.grow'),
+      h('button.btn.sm', { disabled: !st.staged.length || null, on: { click: () => unstagePaths(selected('staged')) } }, 'Unstage'),
+      h('button.btn.sm', { disabled: !st.staged.length || null, on: { click: () => unstagePaths([]) } }, 'Összes unstage')),
+    stagedList);
+  const split = h('div.splitter-h');
+  const left = h('div.changes-left', conflictList, unstagedWrap, split, stagedWrap, commitBox(r));
+  splitter(split, unstagedWrap, { vertical: false, min: 60, max: 1200, key: 'gs.unstagedH' });
+  const vs = h('div.splitter-v');
+  const right = h('div.changes-right', dv.el);
+  splitter(vs, left, { min: 240, max: 900, key: 'gs.changesW' });
+  el.replaceChildren(...[opBanner(r), h('div.changes', left, vs, right)].filter(Boolean));
+
+  // keep / restore the diff
+  const all = [...st.unstaged.map((f) => ['unstaged', f]), ...st.staged.map((f) => ['staged', f]), ...st.conflicted.map((f) => ['conflicted', f])];
+  const still = r.selFile && all.find(([l, f]) => l === r.selFile.list && f.path === r.selFile.path);
+  if (still) { if (!keep || !dv.opts || dv._key !== keyOf(r, still[0], still[1])) selectChange(r, still[0], still[1], true); else dv.reload(); }
+  else {
+    const first = all[0];
+    if (first) selectChange(r, first[0], first[1], true);
+    else dv.clear('Nincs lokális változás – a working tree tiszta.');
+  }
+}
+
+const keyOf = (r, list, f) => `${r.path}|${list}|${f.path}`;
+
+function selectChange(r, list, f, silent) {
+  r.selFile = { list, path: f.path };
+  const dv = diffView();
+  dv._key = keyOf(r, list, f);
+  if (!silent) document.querySelectorAll('.changes-left .file').forEach((x) => x.classList.remove('sel'));
+  if (!silent) renderContentListsOnly(r);
+  const untracked = f.status === '?';
+  const mode = list === 'conflicted' ? 'conflict' : list === 'staged' ? 'staged' : untracked ? 'untracked' : 'unstaged';
+  const extra = [];
+  if (list === 'conflicted') {
+    extra.push(h('button.btn.sm', { on: { click: () => resolve(f.path, 'ours') } }, 'Saját (ours)'));
+    extra.push(h('button.btn.sm', { on: { click: () => resolve(f.path, 'theirs') } }, 'Másik (theirs)'));
+    extra.push(h('button.btn.sm.primary', { on: { click: () => resolve(f.path, 'mark') } }, 'Feloldva'));
+  }
+  dv.show({
+    path: f.path,
+    oldPath: list === 'staged' ? f.old_path : null,
+    conflict: list === 'conflicted',
+    actions: list === 'unstaged' && !untracked ? 'stage' : list === 'staged' ? 'unstage' : null,
+    load: (context, ignoreWs) => invoke('diff', { repo: r.path, req: { mode, path: f.path, old_path: list === 'staged' ? f.old_path : null, context, ignore_ws: ignoreWs } }),
+    apply: async (patch, { act, cached, reverse }) => {
+      if (act === 'discard' && !(await confirmDlg('Elvetés', 'A kijelölt változások véglegesen elvesznek. Folytatod?', 'Elvetés', true))) return;
+      await invoke('apply_patch', { repo: r.path, patch, cached, reverse });
+      await refreshStatus(r);
+      renderAll(true);
+    },
+    image: {
+      old: () => invoke('file_content', { repo: r.path, rev: list === 'staged' ? 'HEAD' : ':', path: f.old_path && list === 'staged' ? f.old_path : f.path }),
+      new: () => invoke('file_content', { repo: r.path, rev: list === 'staged' ? ':' : '', path: f.path }),
+    },
+    extra,
+    onAi: (text) => aiPanel(`AI elemzés – ${basename(f.path)}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
+  });
+}
+
+function renderContentListsOnly(r) {
+  document.querySelectorAll('.changes-left .file').forEach((el) => {
+    // cheap re-highlight; full re-render keeps scroll otherwise
+    el.classList.toggle('sel', false);
+  });
+  const lists = document.querySelectorAll('.changes-left .file-list');
+  lists.forEach((l) => l.querySelectorAll('.file').forEach((f) => {
+    if (f.title === r.selFile.path || f.title.endsWith('→ ' + r.selFile.path)) f.classList.add('sel');
+  }));
+}
+
+function commitBox(r) {
+  const st = r.status;
+  const ta = h('textarea.inp', {
+    placeholder: 'Commit üzenet (első sor: összefoglaló)\n\nCtrl+Enter = commit', spellcheck: 'true', value: r.commitMsg,
+    on: {
+      input: (e) => { r.commitMsg = e.target.value; updHint(); },
+      keydown: (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); doCommit(r); } },
+    },
+  });
+  const hint = h('span.hint');
+  const updHint = () => {
+    const first = (r.commitMsg.split('\n')[0] || '').length;
+    hint.textContent = first ? `${first}/72` : '';
+    hint.className = 'hint' + (first > 72 ? ' warn' : '');
+  };
+  updHint();
+  const amend = h('input', { type: 'checkbox', checked: r.amend, on: { change: async (e) => {
+    r.amend = e.target.checked;
+    if (r.amend && !r.commitMsg.trim()) {
+      try { r.commitMsg = await invoke('head_message', { repo: r.path }); ta.value = r.commitMsg; updHint(); } catch {}
+    }
+  } } });
+  const aiBtn = h('button.btn.ai', { title: 'Commit üzenet generálása a staged diff alapján', disabled: !st.staged.length || null, on: { click: async () => {
+    aiBtn.disabled = true;
+    const old = aiBtn.innerHTML;
+    aiBtn.replaceChildren(icon('refresh', 'spin'), 'Generálás…');
+    try {
+      const res = await invoke('ai_commit_message', { repo: r.path });
+      r.commitMsg = res.text;
+      ta.value = res.text;
+      updHint();
+      if (res.truncated) toast('A diff nagyon nagy volt, csak az eleje került az AI-hoz.', 'info', 6000);
+    } catch (e) { toast(e, 'err'); }
+    aiBtn.innerHTML = old;
+    aiBtn.disabled = false;
+  } } }, icon('sparkle'), 'AI üzenet');
+  const n = st.staged.length;
+  return h('div.commit-box',
+    ta,
+    h('div.row', h('label.chk', amend, 'Amend'), hint, h('span.grow'), aiBtn,
+      h('button.btn.primary', { disabled: (!n && !r.amend && st.operation !== 'merge') || null, on: { click: () => doCommit(r) } }, icon('check'), n ? `Commit (${n})` : 'Commit')),
+    !n && st.unstaged.length ? h('div.hint', 'Nincs staged fájl. Dupla kattintás vagy a + gomb egy fájlon stage-eli.') : null);
+}
+
+async function doCommit(r) {
+  const msg = r.commitMsg.trim();
+  if (!msg) { toast('Írj commit üzenetet (vagy kérj egyet az AI-tól).', 'err'); return; }
+  if (!r.status.staged.length && !r.amend && r.status.operation !== 'merge') { toast('Nincs staged változás.', 'err'); return; }
+  setBusy(true, 'Commit…');
+  try {
+    const out = await invoke('commit', { repo: r.path, message: msg, amend: r.amend, signoff: false, noVerify: false });
+    toast(out.trim().split('\n')[0] || 'Commit kész', 'ok');
+    r.commitMsg = '';
+    r.amend = false;
+  } catch (e) {
+    toast('Commit sikertelen:\n' + e, 'err');
+  } finally {
+    setBusy(false);
+    await refreshAll(r);
+  }
+}
+
+async function stagePaths(paths) {
+  const r = cur();
+  if (!paths.length) return;
+  try { await invoke('stage', { repo: r.path, paths }); } catch (e) { toast(e, 'err'); }
+  r.multi.unstaged.clear();
+  await refreshStatus(r); renderAll(true);
+}
+async function stageAll() {
+  const r = cur();
+  try { await invoke('stage_all', { repo: r.path }); } catch (e) { toast(e, 'err'); }
+  await refreshStatus(r); renderAll(true);
+}
+async function unstagePaths(paths) {
+  const r = cur();
+  try { await invoke('unstage', { repo: r.path, paths }); } catch (e) { toast(e, 'err'); }
+  r.multi.staged.clear();
+  await refreshStatus(r); renderAll(true);
+}
+async function discardFiles(files) {
+  const r = cur();
+  if (!files.length) return;
+  const names = files.map((f) => f.path).slice(0, 12).join('\n') + (files.length > 12 ? `\n… és még ${files.length - 12}` : '');
+  if (!(await confirmDlg('Változások elvetése', `Ezek a változások véglegesen elvesznek:\n\n${names}`, 'Elvetés', true))) return;
+  const tracked = files.filter((f) => f.status !== '?').map((f) => f.path);
+  const untracked = files.filter((f) => f.status === '?').map((f) => f.path);
+  try { await invoke('discard', { repo: r.path, paths: tracked, untracked }); } catch (e) { toast(e, 'err'); }
+  r.multi.unstaged.clear();
+  await refreshStatus(r); renderAll(true);
+}
+async function resolve(path, side) {
+  const r = cur();
+  try { await invoke('resolve_conflict', { repo: r.path, path, side }); toast(`Feloldva: ${path}`, 'ok'); } catch (e) { toast(e, 'err'); }
+  await refreshStatus(r);
+  if (!r.status.conflicted.length && r.status.operation === 'merge' && !r.commitMsg) {
+    try { r.commitMsg = await invoke('prepared_message', { repo: r.path }); } catch {}
+  }
+  renderAll(true);
+}
+
+function fileMenu(e, r, list, f) {
+  const multi = r.multi[list]?.size ? [...r.multi[list]] : [f.path];
+  const files = list === 'unstaged' ? r.status.unstaged.filter((x) => multi.includes(x.path)) : [f];
+  const abs = r.path + '\\' + f.path.replace(/\//g, '\\');
+  contextMenu(e, [
+    list === 'unstaged' ? { label: multi.length > 1 ? `Stage (${multi.length})` : 'Stage', icon: 'plus', action: () => stagePaths(multi) } : null,
+    list === 'staged' ? { label: multi.length > 1 ? `Unstage (${multi.length})` : 'Unstage', icon: 'minus', action: () => unstagePaths(multi) } : null,
+    list === 'unstaged' ? { label: 'Változások elvetése…', icon: 'undo', danger: true, action: () => discardFiles(files) } : null,
+    list === 'conflicted' ? { label: 'Saját verzió (ours)', icon: 'check', action: () => resolve(f.path, 'ours') } : null,
+    list === 'conflicted' ? { label: 'Másik verzió (theirs)', icon: 'check', action: () => resolve(f.path, 'theirs') } : null,
+    list === 'conflicted' ? { label: 'Megjelölés feloldottként', icon: 'check', action: () => resolve(f.path, 'mark') } : null,
+    '-',
+    { label: 'Megnyitás', icon: 'file', action: () => invoke('open_file', { path: abs }) },
+    { label: 'Megjelenítés Intézőben', icon: 'folder', action: () => invoke('reveal_in_explorer', { path: abs }) },
+    { label: 'Útvonal másolása', icon: 'copy', action: () => copy(f.path) },
+    '-',
+    f.status !== '?' ? { label: 'Fájl előzmények', icon: 'history', action: () => fileHistory(f.path) } : null,
+    f.status !== '?' && f.status !== 'A' ? { label: 'Blame', icon: 'blame', action: () => showBlame(f.path, '') } : null,
+    { label: 'AI elemzés (a teljes változás)', icon: 'sparkle', action: () => aiPanel('AI elemzés – lokális változások', (q) => invoke('ai_analyze', { repo: r.path, req: { kind: list === 'staged' ? 'staged' : 'working', question: q } })) },
+    f.status === '?' ? '-' : null,
+    f.status === '?' ? { label: '.gitignore-ba: ' + f.path, icon: 'eye', action: () => ignore(f.path) } : null,
+    f.status === '?' && f.path.includes('.') ? { label: '.gitignore-ba: *' + f.path.slice(f.path.lastIndexOf('.')), icon: 'eye', action: () => ignore('*' + f.path.slice(f.path.lastIndexOf('.'))) } : null,
+  ]);
+}
+
+async function ignore(pattern) {
+  const r = cur();
+  try { await invoke('add_to_gitignore', { repo: r.path, pattern }); toast(`.gitignore: ${pattern}`, 'ok'); } catch (e) { toast(e, 'err'); }
+  await refreshStatus(r); renderAll(true);
+}
+
+// ── history ──
+let logScrollTop = 0;
+
+function renderHistory(el, r, keep) {
+  const dv = diffView();
+  const searchInp = h('input.inp', {
+    placeholder: 'Keresés (Enter)…', value: r.search,
+    on: { keydown: (e) => { if (e.key === 'Enter') runSearch(r, e.target.value); if (e.key === 'Escape') { e.target.value = ''; runSearch(r, ''); } } },
+  });
+  const modeSel = h('select.inp', { style: { width: 'auto' }, on: { change: (e) => { r.searchMode = e.target.value; if (r.search) runSearch(r, r.search); } } },
+    [['message', 'Üzenet / hash'], ['author', 'Szerző'], ['content', 'Tartalom (-S)'], ['path', 'Fájl útvonal']].map(([v, l]) => h('option', { value: v }, l)));
+  modeSel.value = r.searchMode;
+  const title = r.logPath ? `Fájl előzmények: ${r.logPath}` : r.logRev ? `Ág: ${r.logRev}` : 'Összes ág';
+  const head = h('div.log-head',
+    h('b', title),
+    r.logPath || r.logRev ? h('button.btn.sm', { on: { click: () => { r.logPath = ''; r.logRev = ''; setView('history', true); } } }, 'Összes ág') : null,
+    !r.logPath ? h('button.btn.sm', { title: 'Csak az aktuális ág', on: { click: () => { r.logRev = r.logRev ? '' : 'HEAD'; setView('history', true); } } }, r.logRev ? 'Minden ág' : 'Csak HEAD') : null,
+    h('span', { style: { flex: 1 } }),
+    r.matches ? h('span.sub', { style: { color: 'var(--text-dim)', fontSize: '12px' } }, `${r.matches.size} találat`) : null,
+    r.matches ? h('button.icon-btn', { title: 'Előző találat', on: { click: () => jumpMatch(r, -1) } }, icon('up')) : null,
+    r.matches ? h('button.icon-btn', { title: 'Következő találat', on: { click: () => jumpMatch(r, 1) } }, icon('down')) : null,
+    modeSel, searchInp,
+    h('button.icon-btn', { title: 'Frissítés (F5)', on: { click: () => refreshAll(r) } }, icon('refresh')));
+  const gw = graphWidth(r.commits);
+  const cols = h('div.log-cols', h('span', { style: { width: gw + 'px', paddingLeft: '6px' } }, 'Gráf'), h('span', { style: { flex: 1 } }, 'Leírás'),
+    h('span', { style: { width: '150px' } }, 'Szerző'), h('span', { style: { width: '74px' } }, 'Hash'), h('span', { style: { width: '130px', textAlign: 'right', paddingRight: '10px' } }, 'Dátum'));
+  const scroll = h('div.log-scroll', { tabindex: 0 });
+  const inner = h('div.log-inner');
+  scroll.append(inner);
+  const top = h('div.history-top', head, cols, scroll);
+  const detailsEl = h('div.details');
+  const bottom = h('div.history-bottom', detailsEl, h('div.splitter-v', { id: 'det-split' }), h('div.changes-right', dv.el));
+  const hs = h('div.splitter-h');
+  el.replaceChildren(...[opBanner(r), h('div.history', top, hs, bottom)].filter(Boolean));
+  splitter(hs, bottom, { vertical: false, min: 120, max: 1400, invert: true, key: 'gs.histBottomH' });
+  splitter(bottom.querySelector('#det-split'), detailsEl, { min: 220, max: 1200, key: 'gs.detailsW' });
+
+  // virtual list
+  const wip = r.status && (r.status.staged.length + r.status.unstaged.length + r.status.conflicted.length) > 0 && !r.logPath && !r.logRev;
+  const rows = wip ? [{ wip: true }, ...r.commits] : r.commits;
+  r._rows = rows;
+  inner.style.height = rows.length * ROW_H + 'px';
+  const headHash = r.status?.head;
+  const draw = () => {
+    const st = scroll.scrollTop, vh = scroll.clientHeight || 600;
+    const a = Math.max(0, Math.floor(st / ROW_H) - 8), b = Math.min(rows.length, Math.ceil((st + vh) / ROW_H) + 8);
+    let html = '';
+    for (let i = a; i < b; i++) html += rowHtml(rows[i], i, gw, headHash, r);
+    inner.innerHTML = html;
+  };
+  scroll.addEventListener('scroll', () => { logScrollTop = scroll.scrollTop; draw(); }, { passive: true });
+  new ResizeObserver(draw).observe(scroll);
+  scroll.addEventListener('click', (e) => {
+    const row = e.target.closest('.crow');
+    if (!row) return;
+    const it = rows[+row.dataset.i];
+    if (it.wip) { setView('changes'); return; }
+    selectCommit(r, it.hash);
+    draw();
+  });
+  scroll.addEventListener('contextmenu', (e) => {
+    const row = e.target.closest('.crow');
+    if (!row) return;
+    const it = rows[+row.dataset.i];
+    if (it.wip) return;
+    commitMenu(e, r, it);
+  });
+  scroll.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const idx = rows.findIndex((x) => x.hash === r.selCommit);
+    const n = Math.max(0, Math.min(rows.length - 1, idx + (e.key === 'ArrowDown' ? 1 : -1)));
+    if (rows[n] && !rows[n].wip) { selectCommit(r, rows[n].hash); ensureVisible(scroll, n); draw(); }
+  });
+  r._draw = draw;
+  r._scroll = scroll;
+  if (keep) scroll.scrollTop = logScrollTop;
+  draw();
+
+  // details
+  if (r.selCommit && (r.commits.some((c) => c.hash === r.selCommit) || r._stashSel === r.selCommit)) {
+    if (keep && r.commitDetails?.hash === r.selCommit) renderDetails(detailsEl, r, true);
+    else selectCommit(r, r.selCommit, true);
+  } else if (r.commits.length) {
+    selectCommit(r, r.commits[0].hash, true);
+  } else {
+    detailsEl.replaceChildren(h('div.empty', icon('history'), 'Még nincs commit ebben a repository-ban.'));
+    dv.clear('');
+  }
+}
+
+function ensureVisible(scroll, i) {
+  const y = i * ROW_H;
+  if (y < scroll.scrollTop) scroll.scrollTop = y;
+  else if (y + ROW_H > scroll.scrollTop + scroll.clientHeight) scroll.scrollTop = y + ROW_H - scroll.clientHeight;
+}
+
+function refLabels(c, r) {
+  if (!c.refs?.length) return '';
+  const remotes = (r.refs?.remotes || []).map((x) => x.name + '/');
+  let out = '';
+  for (let ref of c.refs) {
+    if (ref.startsWith('HEAD -> ')) {
+      out += `<span class="rl head" title="HEAD">${esc(ref.slice(8))}</span>`;
+    } else if (ref === 'HEAD') {
+      out += `<span class="rl head">HEAD</span>`;
+    } else if (ref.startsWith('tag: ')) {
+      out += `<span class="rl tag" title="tag">${esc(ref.slice(5))}</span>`;
+    } else if (remotes.some((p) => ref.startsWith(p))) {
+      if (ref.endsWith('/HEAD')) continue;
+      out += `<span class="rl remote" title="remote ág">${esc(ref)}</span>`;
+    } else if (ref !== 'refs/stash') {
+      out += `<span class="rl local" title="lokális ág">${esc(ref)}</span>`;
+    }
+  }
+  return out;
+}
+
+function rowHtml(c, i, gw, headHash, r) {
+  const y = i * ROW_H;
+  if (c.wip) {
+    const st = r.status;
+    const n = st.staged.length + st.unstaged.length + st.conflicted.length;
+    return `<div class="crow wip" data-i="${i}" style="top:${y}px"><span class="g" style="width:${gw}px;display:flex;align-items:center;padding-left:6px;color:var(--text-dim)">◌</span><span class="subj"><span class="rl local">Lokális változások</span><span class="t">${n} fájl nincs commitolva</span></span><span class="au"></span><span class="hs"></span><span class="dt"></span></div>`;
+  }
+  const sel = c.hash === r.selCommit ? ' sel' : '';
+  const match = r.matches ? (r.matches.has(c.hash) ? ' match' : ' dim') : '';
+  return `<div class="crow${sel}${match}" data-i="${i}" style="top:${y}px">${graphSvg(c, gw, c.hash === headHash)}<span class="subj">${refLabels(c, r)}<span class="t">${esc(c.subject)}</span></span><span class="au" title="${esc(c.email)}">${esc(c.author)}</span><span class="hs mono">${short(c.hash)}</span><span class="dt" title="${fmtDate(c.time, true)}">${relTime(c.time)}</span></div>`;
+}
+
+async function runSearch(r, q) {
+  r.search = q;
+  if (!q.trim()) { r.matches = null; renderContent(true); return; }
+  setBusy(true, 'Keresés…');
+  try {
+    const hashes = await invoke('search_commits', { repo: r.path, query: q, mode: r.searchMode });
+    r.matches = new Set(hashes);
+    renderContent(true);
+    if (hashes.length) jumpMatch(r, 1, true);
+    else toast('Nincs találat.');
+  } catch (e) { toast(e, 'err'); }
+  finally { setBusy(false); }
+}
+
+function jumpMatch(r, dir, first) {
+  const rows = r._rows || [];
+  const cur = first ? -1 : rows.findIndex((x) => x.hash === r.selCommit);
+  let i = cur;
+  for (let k = 0; k < rows.length; k++) {
+    i = (i + dir + rows.length) % rows.length;
+    if (rows[i].hash && r.matches.has(rows[i].hash)) break;
+  }
+  if (rows[i]?.hash && r.matches.has(rows[i].hash)) {
+    selectCommit(r, rows[i].hash);
+    if (r._scroll) { r._scroll.scrollTop = Math.max(0, i * ROW_H - r._scroll.clientHeight / 2); r._draw(); }
+  } else if (r.matches.size) toast('A találatok a betöltött commitokon kívül esnek (növeld a log limitet a beállításokban).');
+}
+
+function showRefInHistory(hash, name) {
+  const r = cur();
+  if (r.view !== 'history' || r.logPath) { r.view = 'history'; r.logPath = ''; renderAll(); }
+  const i = (r._rows || []).findIndex((x) => x.hash === hash);
+  selectCommit(r, hash);
+  if (i >= 0 && r._scroll) { r._scroll.scrollTop = Math.max(0, i * ROW_H - r._scroll.clientHeight / 3); r._draw(); }
+  else if (i < 0) toast(`${name}: a commit nincs a betöltött listában.`);
+  renderSidebar();
+}
+
+async function selectCommit(r, hash, silent) {
+  r.selCommit = hash;
+  r.blame = null;
+  const detailsEl = document.querySelector('.details');
+  if (!detailsEl) return;
+  if (!silent) r._draw && r._draw();
+  detailsEl.replaceChildren(h('div.empty', 'Betöltés…'));
+  try {
+    const d = await invoke('commit_details', { repo: r.path, hash });
+    if (r.selCommit !== hash) return;
+    r.commitDetails = d;
+    renderDetails(detailsEl, r);
+  } catch (e) {
+    detailsEl.replaceChildren(h('div.empty', String(e)));
+  }
+}
+
+function renderDetails(el, r, keep) {
+  const d = r.commitDetails;
+  const dv = diffView();
+  const lines = d.message.split('\n');
+  const msg = h('div.msg', h('div.s', lines[0]), lines.slice(1).join('\n').replace(/^\n+/, ''));
+  const link = (hash) => h('a', { on: { click: () => showRefInHistory(hash, short(hash)) } }, short(hash));
+  const meta = h('div.cmeta',
+    h('div.author-line', avatar(d.author, d.author_email), h('div', h('div.who', d.author, ' ', h('span', { style: { color: 'var(--text-dim)', fontWeight: 400 } }, `<${d.author_email}>`)), h('div.when', fmtDate(d.author_time, true) + ' · ' + relTime(d.author_time)))),
+    msg,
+    h('table',
+      h('tr', h('td', 'Commit'), h('td.mono', d.hash, ' ', h('a', { title: 'Másolás', on: { click: () => copy(d.hash) } }, '⧉'))),
+      h('tr', h('td', 'Szülők'), h('td.mono', d.parents.length ? d.parents.flatMap((p, i) => [i ? ', ' : '', link(p)]) : '(gyökér commit)')),
+      d.committer !== d.author || d.committer_time !== d.author_time ? h('tr', h('td', 'Committer'), h('td', `${d.committer} · ${fmtDate(d.committer_time, true)}`)) : null,
+      d.refs.length ? h('tr', h('td', 'Refek'), h('td', d.refs.join(', '))) : null),
+    h('div', { style: { marginTop: '8px', display: 'flex', gap: '6px' } },
+      h('button.btn.sm.ai', { on: { click: () => aiCommit(r, d.hash) } }, icon('sparkle'), 'AI magyarázat'),
+      h('button.btn.sm', { on: { click: () => { r.compare = { from: d.parents[0] || '', to: d.hash, mergeBase: false, result: null }; setView('compare'); runCompare(r); } } }, icon('compare'), 'Összehasonlítás')),
+  );
+  const files = h('div', d.files.map((f) => fileRow(r, 'commit', f, (x) => selectCommitFile(r, d, x))));
+  el.replaceChildren(h('div.pane-h', 'Commit részletek', h('span.sub', `${d.files.length} fájl`)), h('div.details-body', meta, files));
+  const sel = (keep && r.selFile?.list === 'commit' && d.files.find((f) => f.path === r.selFile.path)) || d.files[0];
+  if (sel) { if (!(keep && dv._key === `${d.hash}|${sel.path}`)) selectCommitFile(r, d, sel); }
+  else dv.clear('A commit nem tartalmaz fájl változást.');
+}
+
+function selectCommitFile(r, d, f) {
+  r.selFile = { list: 'commit', path: f.path };
+  document.querySelectorAll('.details .file').forEach((el) => el.classList.toggle('sel', el.title === f.path || el.title.endsWith('→ ' + f.path)));
+  const dv = diffView();
+  dv._key = `${d.hash}|${f.path}`;
+  dv.show({
+    path: f.path, oldPath: f.old_path,
+    load: (context, ignoreWs) => invoke('diff', { repo: r.path, req: { mode: 'range', from: d.base, to: d.hash, path: f.path, old_path: f.old_path, context, ignore_ws: ignoreWs } }),
+    image: {
+      old: () => (f.status === 'A' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: d.base, path: f.old_path || f.path })),
+      new: () => (f.status === 'D' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: d.hash, path: f.path })),
+    },
+    extra: [
+      h('button.btn.sm', { title: 'Fájl előzmények', on: { click: () => fileHistory(f.path) } }, icon('history')),
+      f.status !== 'D' ? h('button.btn.sm', { title: 'Blame ennél a commitnál', on: { click: () => showBlame(f.path, d.hash) } }, icon('blame')) : null,
+    ],
+    onAi: (text) => aiPanel(`AI elemzés – ${basename(f.path)} @ ${short(d.hash)}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
+  });
+}
+
+async function showStash(s) {
+  const r = cur();
+  if (r.view !== 'history') { r.view = 'history'; renderAll(); }
+  r._stashSel = s.hash;
+  selectCommit(r, s.hash);
+}
+
+function fileHistory(path) {
+  const r = cur();
+  r.logPath = path;
+  r.logRev = '';
+  r.selCommit = null;
+  setView('history', true);
+}
+
+async function showBlame(path, rev) {
+  const r = cur();
+  r.blame = { path, rev };
+  const dv = diffView();
+  dv.opts = null;
+  dv._key = null;
+  dv.el.replaceChildren(h('div.diff-toolbar', h('span.path', `Blame: ${path}`), rev ? h('span.sub', ` @ ${short(rev)}`) : null, h('span.grow'),
+    h('button.btn.sm', { on: { click: () => { r.blame = null; renderContent(); } } }, 'Bezárás')), h('div.diff-body', h('div.diff-msg', 'Betöltés…')));
+  try {
+    const lines = await invoke('blame', { repo: r.path, path, rev: rev || null });
+    dv.el.replaceChild(h('div.diff-body', renderBlame(lines, (hash) => showRefInHistory(hash, short(hash)))), dv.el.lastChild);
+  } catch (e) {
+    dv.el.replaceChild(h('div.diff-body', h('div.diff-msg', String(e))), dv.el.lastChild);
+  }
+}
+
+// ── compare ──
+function renderCompare(el, r, keep) {
+  const dv = diffView();
+  const c = r.compare;
+  const refNames = () => {
+    const x = r.refs || { local: [], remote: [], tags: [] };
+    return [...x.local.map((b) => b.name), ...x.remote.map((b) => b.name), ...x.tags.map((t) => t.name), 'HEAD'];
+  };
+  const dl = h('datalist#refs-dl', refNames().map((n) => h('option', { value: n })));
+  const from = h('input.inp', { list: 'refs-dl', placeholder: 'Honnan (pl. main)', value: c.from, on: { input: (e) => (c.from = e.target.value.trim()) } });
+  const to = h('input.inp', { list: 'refs-dl', placeholder: 'Hová (üres = working tree)', value: c.to, on: { input: (e) => (c.to = e.target.value.trim()) } });
+  const mb = h('input', { type: 'checkbox', checked: c.mergeBase, on: { change: (e) => (c.mergeBase = e.target.checked) } });
+  const go = (e) => { if (e.key === 'Enter') runCompare(r); };
+  from.addEventListener('keydown', go); to.addEventListener('keydown', go);
+  const bar = h('div.compare-bar', dl, h('b', 'Összehasonlítás'), from,
+    h('button.icon-btn', { title: 'Csere', on: { click: () => { [c.from, c.to] = [c.to, c.from]; renderContent(); } } }, '⇄'), to,
+    h('label.chk', { title: 'A "Honnan" helyett a két revízió közös ősét (merge-base) használja – azt mutatja, mit hozna be a "Hová" ág' }, mb, 'Merge-base (A...B)'),
+    h('button.btn.primary', { on: { click: () => runCompare(r) } }, icon('compare'), 'Összehasonlítás'),
+    h('button.btn.ai', { disabled: !c.result || null, on: { click: () => aiCompare(r) } }, icon('sparkle'), 'AI összehasonlítás'));
+  const leftBody = h('div.details-body');
+  const left = h('div.details', h('div.pane-h', 'Változott fájlok', c.result ? h('span.sub', c.result.files.length) : null), leftBody);
+  const vs = h('div.splitter-v');
+  el.replaceChildren(h('div.history', bar, h('div.history-bottom', { style: { height: 'auto', flex: 1, borderTop: 0 } }, left, vs, h('div.changes-right', dv.el))));
+  splitter(vs, left, { min: 220, max: 1200, key: 'gs.compareW' });
+  if (!c.result) {
+    leftBody.replaceChildren(h('div.empty', icon('compare'), 'Válassz két revíziót (ág, tag, commit hash), majd nyomd meg az Összehasonlítás gombot.'));
+    dv.clear('');
+    return;
+  }
+  const res = c.result;
+  const summary = h('div.compare-summary',
+    h('div', `${res.from} → ${res.to || 'working tree'}: ${res.files.length} fájl`),
+    res.ahead.length ? h('details', h('summary', `${res.ahead.length} commit csak itt: ${res.to}`), h('ul', res.ahead.map((x) => h('li', x)))) : null,
+    res.behind.length ? h('details', h('summary', `${res.behind.length} commit csak itt: ${res.from}`), h('ul', res.behind.map((x) => h('li', x)))) : null);
+  leftBody.replaceChildren(summary, ...res.files.map((f) => fileRow(r, 'compare', f, (x) => selectCompareFile(r, x))));
+  const sel = (keep && r.selFile?.list === 'compare' && res.files.find((f) => f.path === r.selFile.path)) || res.files[0];
+  if (sel) selectCompareFile(r, sel);
+  else dv.clear('Nincs különbség.');
+}
+
+async function runCompare(r) {
+  const c = r.compare;
+  if (!c.from) { toast('Add meg a "Honnan" revíziót.', 'err'); return; }
+  setBusy(true, 'Összehasonlítás…');
+  try {
+    c.result = await invoke('compare', { repo: r.path, from: c.from, to: c.to, mergeBase: c.mergeBase });
+  } catch (e) { toast(e, 'err'); c.result = null; }
+  finally { setBusy(false); }
+  renderContent();
+}
+
+function selectCompareFile(r, f) {
+  const res = r.compare.result;
+  r.selFile = { list: 'compare', path: f.path };
+  document.querySelectorAll('.details .file').forEach((el) => el.classList.toggle('sel', el.title === f.path || el.title.endsWith('→ ' + f.path)));
+  diffView().show({
+    path: f.path, oldPath: f.old_path,
+    load: (context, ignoreWs) => invoke('diff', { repo: r.path, req: { mode: 'range', from: res.base, to: res.to || null, path: f.path, old_path: f.old_path, context, ignore_ws: ignoreWs } }),
+    image: {
+      old: () => (f.status === 'A' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: res.base, path: f.old_path || f.path })),
+      new: () => (f.status === 'D' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: res.to || '', path: f.path })),
+    },
+    onAi: (text) => aiPanel(`AI – ${basename(f.path)}: ${res.from} → ${res.to || 'working tree'}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
+  });
+}
+
+function aiCompare(r) {
+  const c = r.compare;
+  aiPanel(`AI összehasonlítás: ${c.from} → ${c.to || 'working tree'}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: c.from, to: c.to, merge_base: c.mergeBase, question: q } }));
+}
+
+function aiCommit(r, hash) {
+  aiPanel(`AI magyarázat – ${short(hash)}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'commit', hash, question: q } }));
+}
+
+// ───────────────────────── AI panel ─────────────────────────
+
+function aiPanel(title, run) {
+  document.querySelector('.ai-panel')?.remove();
+  if (!S.settings.anthropic_api_key) {
+    toast('Az AI funkciókhoz add meg az Anthropic API kulcsot a Beállításokban.', 'err');
+    settingsDlg();
+    return;
+  }
+  const body = h('div.ai-body');
+  const q = h('input.inp', { placeholder: 'Kérdezz a diff-ről (pl. "Van benne biztonsági hiba?")…' });
+  const ask = async (question) => {
+    if (question) body.append(h('div.ai-q', '❯ ' + question));
+    const wait = h('div.ai-thinking', icon('sparkle', 'spin'), 'Az AI elemzi a változásokat…');
+    body.append(wait);
+    body.scrollTop = body.scrollHeight;
+    try {
+      const res = await run(question || null);
+      wait.remove();
+      const out = h('div', { html: markdown(res.text) });
+      body.append(out);
+      if (res.truncated) body.append(h('div.ai-q', 'Megjegyzés: a diff túl nagy volt, csak az eleje került elemzésre.'));
+      out.scrollIntoView({ block: 'start' });
+    } catch (e) {
+      wait.replaceWith(h('div', { style: { color: 'var(--danger)' } }, String(e)));
+    }
+  };
+  const panel = h('div.ai-panel',
+    h('div.pane-h', h('span.spark', icon('sparkle')), title, h('span.grow'),
+      h('button.icon-btn', { title: 'Szöveg másolása', on: { click: () => copy(body.innerText) } }, icon('copy')),
+      h('button.icon-btn', { title: 'Bezárás', on: { click: () => panel.remove() } }, icon('close'))),
+    body,
+    h('div.ai-ask', q, h('button.btn.ai', { on: { click: () => { const v = q.value.trim(); if (v) { q.value = ''; ask(v); } } } }, 'Kérdés')));
+  q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && q.value.trim()) { const v = q.value.trim(); q.value = ''; ask(v); } });
+  document.body.append(panel);
+  ask(null);
+}
+
+// ───────────────────────── console ─────────────────────────
+
+function consoleLog(repo, args, out, err) {
+  repo._log = repo._log || [];
+  repo._log.push({ cmd: 'git ' + args.join(' '), out, err });
+  if (repo._log.length > 200) repo._log.shift();
+  const box = document.querySelector('.console-out');
+  if (box && repo === cur()) renderConsoleOut(box, repo);
+}
+
+function renderConsoleOut(box, repo) {
+  box.innerHTML = (repo._log || []).map((l) => `<div class="cmd">$ ${esc(l.cmd)}</div><div class="${l.err ? 'err' : ''}">${esc(l.out)}</div>`).join('');
+  box.scrollTop = box.scrollHeight;
+}
+
+function toggleConsole() {
+  const ex = document.querySelector('.console');
+  if (ex) { ex.remove(); return; }
+  const r = cur();
+  if (!r) return;
+  const out = h('div.console-out');
+  const hist = [];
+  let hi = -1;
+  const inp = h('input.inp', { placeholder: 'git parancs, pl. log --oneline -5   (a "git" előtag opcionális)', spellcheck: 'false' });
+  inp.addEventListener('keydown', async (e) => {
+    if (e.key === 'ArrowUp') { if (hist.length) { hi = Math.max(0, hi < 0 ? hist.length - 1 : hi - 1); inp.value = hist[hi]; } e.preventDefault(); return; }
+    if (e.key === 'ArrowDown') { if (hi >= 0) { hi = Math.min(hist.length, hi + 1); inp.value = hist[hi] || ''; } e.preventDefault(); return; }
+    if (e.key !== 'Enter' || !inp.value.trim()) return;
+    const line = inp.value.trim();
+    hist.push(line); hi = -1;
+    inp.value = '';
+    let args = shellSplit(line);
+    if (args[0] === 'git') args = args.slice(1);
+    await op('git ' + args.join(' '), args, { quiet: true });
+    inp.focus();
+  });
+  const c = h('div.console', h('div.pane-h', icon('console'), 'Git konzol', h('span.sub', r.path), h('span.grow'),
+    h('button.icon-btn', { title: 'Törlés', on: { click: () => { r._log = []; renderConsoleOut(out, r); } } }, icon('trash')),
+    h('button.icon-btn', { on: { click: () => c.remove() } }, icon('close'))), out, h('div.console-in', h('span.mono', 'git'), inp));
+  document.body.append(c);
+  renderConsoleOut(out, r);
+  inp.focus();
+}
+
+// ───────────────────────── menus ─────────────────────────
+
+const copy = (t) => navigator.clipboard.writeText(t).then(() => toast('Vágólapra másolva', 'ok', 1500));
+
+function localBranchMenu(e, b) {
+  const r = cur();
+  const head = r.refs.head;
+  contextMenu(e, [
+    { header: b.name },
+    { label: 'Checkout', icon: 'check', disabled: b.current, action: () => checkout(b.name) },
+    '-',
+    { label: `Merge "${b.name}" → "${head}"`, icon: 'merge', disabled: b.current || !head, action: () => mergeDlg(b.name) },
+    { label: `Rebase "${head}" erre: "${b.name}"`, icon: 'branch', disabled: b.current || !head, action: () => rebase(b.name) },
+    b.current ? { label: 'Pull', icon: 'pull', action: () => pullDlg() } : { label: 'Fast-forward az upstream-re', icon: 'pull', disabled: !b.upstream || !b.behind, action: () => op(`Fast-forward ${b.name}`, ['fetch', '.', `${b.upstream}:${b.name}`]) },
+    { label: 'Push', icon: 'push', action: () => pushDlg(b.name) },
+    '-',
+    { label: 'Új ág innen…', icon: 'plus', action: () => newBranchDlg(b.name) },
+    { label: 'Átnevezés…', icon: 'changes', action: () => renameBranchDlg(b) },
+    { label: 'Upstream beállítása…', icon: 'cloud', action: () => upstreamDlg(b) },
+    { label: 'Összehasonlítás az aktuális ággal', icon: 'compare', disabled: b.current, action: () => { r.compare = { from: head, to: b.name, mergeBase: true, result: null }; setView('compare'); runCompare(r); } },
+    { label: 'AI: mit hoz be ez az ág?', icon: 'sparkle', disabled: b.current, action: () => aiPanel(`AI: ${head} ↔ ${b.name}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head, to: b.name, merge_base: true, question: q } })) },
+    { label: 'Név másolása', icon: 'copy', action: () => copy(b.name) },
+    '-',
+    { label: 'Törlés…', icon: 'trash', danger: true, disabled: b.current, action: () => deleteBranch(b) },
+  ]);
+}
+
+function remoteBranchMenu(e, b, remote) {
+  const r = cur();
+  const head = r.refs.head;
+  const short_ = b.name.slice(remote.length + 1);
+  contextMenu(e, [
+    { header: b.name },
+    { label: `Checkout (lokális "${short_}" ág)`, icon: 'check', action: () => checkoutRemote(b.name) },
+    { label: `Merge "${b.name}" → "${head}"`, icon: 'merge', disabled: !head, action: () => mergeDlg(b.name) },
+    { label: `Rebase "${head}" erre: "${b.name}"`, icon: 'branch', disabled: !head, action: () => rebase(b.name) },
+    '-',
+    { label: 'Új ág innen…', icon: 'plus', action: () => newBranchDlg(b.name) },
+    { label: 'Összehasonlítás az aktuális ággal', icon: 'compare', action: () => { r.compare = { from: head || 'HEAD', to: b.name, mergeBase: true, result: null }; setView('compare'); runCompare(r); } },
+    { label: 'AI: mit hoz be ez az ág?', icon: 'sparkle', action: () => aiPanel(`AI: ${head} ↔ ${b.name}`, (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head || 'HEAD', to: b.name, merge_base: true, question: q } })) },
+    { label: 'Név másolása', icon: 'copy', action: () => copy(b.name) },
+    '-',
+    { label: 'Törlés a remote-on…', icon: 'trash', danger: true, action: async () => {
+      if (await confirmDlg('Remote ág törlése', `Törlöd a(z) "${short_}" ágat a(z) "${remote}" remote-on?`, 'Törlés', true)) op(`Remote ág törlése: ${b.name}`, ['push', remote, '--delete', short_]);
+    } },
+  ]);
+}
+
+function tagMenu(e, t) {
+  const r = cur();
+  contextMenu(e, [
+    { header: t.name },
+    { label: 'Checkout (detached)', icon: 'check', action: () => checkout(t.name) },
+    { label: 'Új ág innen…', icon: 'plus', action: () => newBranchDlg(t.name) },
+    { label: 'Push tag…', icon: 'push', action: async () => { const rm = await pickRemote(); if (rm) op(`Push tag ${t.name}`, ['push', rm, `refs/tags/${t.name}`]); } },
+    { label: 'Összehasonlítás HEAD-del', icon: 'compare', action: () => { r.compare = { from: t.name, to: 'HEAD', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
+    { label: 'Név másolása', icon: 'copy', action: () => copy(t.name) },
+    '-',
+    { label: 'Törlés (lokális)…', icon: 'trash', danger: true, action: async () => { if (await confirmDlg('Tag törlése', `Törlöd a(z) "${t.name}" taget?`, 'Törlés', true)) op(`Tag törlése ${t.name}`, ['tag', '-d', t.name]); } },
+    { label: 'Törlés a remote-on…', icon: 'trash', danger: true, action: async () => { const rm = await pickRemote(); if (rm && await confirmDlg('Remote tag törlése', `Törlöd a(z) "${t.name}" taget a(z) "${rm}" remote-on?`, 'Törlés', true)) op(`Remote tag törlése ${t.name}`, ['push', rm, '--delete', `refs/tags/${t.name}`]); } },
+  ]);
+}
+
+function stashMenu(e, s) {
+  contextMenu(e, [
+    { header: s.name },
+    { label: 'Apply', icon: 'check', action: () => op(`Stash apply ${s.name}`, ['stash', 'apply', s.name]) },
+    { label: 'Pop', icon: 'pop', action: () => op(`Stash pop ${s.name}`, ['stash', 'pop', s.name]) },
+    { label: 'Ág létrehozása a stash-ből…', icon: 'branch', action: async () => {
+      const v = await formDlg('Ág stash-ből', [{ name: 'name', label: 'Ág neve' }], 'Létrehozás');
+      if (v?.name) op('Stash branch', ['stash', 'branch', v.name.trim(), s.name]);
+    } },
+    '-',
+    { label: 'Drop…', icon: 'trash', danger: true, action: async () => { if (await confirmDlg('Stash törlése', `Törlöd: ${s.name} (${s.message})?`, 'Törlés', true)) op(`Stash drop ${s.name}`, ['stash', 'drop', s.name]); } },
+  ]);
+}
+
+function commitMenu(e, r, c) {
+  const head = r.refs?.head;
+  const branches = c.refs.map((x) => x.replace(/^HEAD -> /, '')).filter((x) => x !== 'HEAD' && !x.startsWith('tag: '));
+  contextMenu(e, [
+    { header: `${short(c.hash)} ${c.subject.slice(0, 50)}` },
+    ...branches.slice(0, 4).map((b) => ({ label: `Checkout "${b}"`, icon: 'check', action: () => (r.refs.remote.some((x) => x.name === b) ? checkoutRemote(b) : checkout(b)) })),
+    { label: 'Checkout commit (detached HEAD)', icon: 'check', action: () => checkout(c.hash) },
+    '-',
+    { label: 'Új ág innen…', icon: 'branch', action: () => newBranchDlg(c.hash) },
+    { label: 'Új tag innen…', icon: 'tag', action: () => tagDlg(c.hash) },
+    '-',
+    { label: `Merge → "${head}"`, icon: 'merge', disabled: !head, action: () => mergeDlg(branches[0] || c.hash) },
+    { label: `Rebase "${head}" erre`, icon: 'branch', disabled: !head, action: () => rebase(c.hash) },
+    { label: 'Cherry-pick', icon: 'commit', action: () => op(`Cherry-pick ${short(c.hash)}`, ['cherry-pick', ...(c.parents.length > 1 ? ['-m', '1'] : []), c.hash]) },
+    { label: 'Revert', icon: 'undo', action: () => op(`Revert ${short(c.hash)}`, ['revert', '--no-edit', ...(c.parents.length > 1 ? ['-m', '1'] : []), c.hash]) },
+    { label: `"${head || 'HEAD'}" reset ide…`, icon: 'undo', danger: true, action: () => resetDlg(c) },
+    '-',
+    { label: 'Összehasonlítás a working tree-vel', icon: 'compare', action: () => { r.compare = { from: c.hash, to: '', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
+    { label: 'Összehasonlítás HEAD-del', icon: 'compare', action: () => { r.compare = { from: c.hash, to: 'HEAD', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
+    { label: 'AI magyarázat', icon: 'sparkle', action: () => aiCommit(r, c.hash) },
+    '-',
+    { label: 'Hash másolása', icon: 'copy', action: () => copy(c.hash) },
+    { label: 'Üzenet másolása', icon: 'copy', action: () => copy(c.subject) },
+  ]);
+}
+
+// ───────────────────────── operations & dialogs ─────────────────────────
+
+async function checkout(ref) {
+  const r = cur();
+  const dirty = r.status && (r.status.staged.length || r.status.unstaged.filter((f) => f.status !== '?').length);
+  if (dirty) {
+    const choice = await modal({
+      title: `Checkout: ${ref}`,
+      body: h('div.desc', 'Vannak nem commitolt változások. Mi legyen velük?'),
+      buttons: [
+        { label: 'Mégse', value: null },
+        { label: 'Stash → checkout → pop', value: 'stash' },
+        { label: 'Megtartás (próbáld)', value: 'keep', primary: true },
+      ],
+    });
+    if (!choice) return;
+    if (choice === 'stash') {
+      if ((await op('Stash', ['stash', 'push', '-u', '-m', `GitStar auto-stash (checkout ${ref})`], { quiet: true, refresh: false })) == null) return;
+      const ok = await op(`Checkout ${ref}`, ['checkout', ref], { refresh: false });
+      await op('Stash pop', ['stash', 'pop'], { quiet: ok == null });
+      return;
+    }
+  }
+  await op(`Checkout ${ref}`, ['checkout', ref]);
+}
+
+async function checkoutRemote(full) {
+  const r = cur();
+  const name = full.slice(full.indexOf('/') + 1);
+  if (r.refs.local.some((b) => b.name === name)) {
+    const b = r.refs.local.find((x) => x.name === name);
+    await checkout(name);
+    if (b.upstream === full && b.behind) toast(`"${name}" ${b.behind} commit-tal le van maradva – használd a Pull-t.`);
+    return;
+  }
+  await op(`Checkout ${full}`, ['checkout', '-b', name, '--track', full]);
+}
+
+async function doFetch() {
+  await op('Fetch', ['fetch', '--all', '--prune', '--tags']);
+}
+
+async function pickRemote() {
+  const rs = cur().refs?.remotes || [];
+  if (rs.length <= 1) return rs[0]?.name || null;
+  const v = await formDlg('Remote', [{ name: 'remote', label: 'Remote', type: 'select', options: rs.map((x) => x.name) }], 'OK');
+  return v?.remote || null;
+}
+
+async function pullDlg() {
+  const r = cur();
+  const st = r.status;
+  if (!st.upstream && !(r.refs?.remotes || []).length) { toast('Nincs beállított remote.', 'err'); return; }
+  const v = await formDlg('Pull', [
+    { name: 'mode', label: 'Mód', type: 'select', value: 'merge', options: [{ value: 'merge', label: 'Merge (alapértelmezett)' }, { value: 'rebase', label: 'Rebase' }, { value: 'ff', label: 'Csak fast-forward' }] },
+    { name: 'autostash', label: 'Lokális változások automatikus stash-elése (--autostash)', type: 'checkbox', value: true },
+  ], 'Pull', st.upstream ? `${st.branch} ← ${st.upstream}` : `A(z) "${st.branch}" ágnak nincs upstream-je.`);
+  if (!v) return;
+  const args = ['pull', '--progress'];
+  if (v.mode === 'rebase') args.push('--rebase'); else if (v.mode === 'ff') args.push('--ff-only'); else args.push('--no-rebase');
+  if (v.autostash) args.push('--autostash');
+  await op('Pull', args);
+}
+
+async function pushDlg(branch) {
+  const r = cur();
+  const remotes = r.refs?.remotes || [];
+  if (!remotes.length) { toast('Nincs remote. Adj hozzá egyet a Remote-ok szekcióban.', 'err'); return; }
+  const b = r.refs.local.find((x) => x.name === (branch || r.refs.head));
+  if (!b) { toast('Detached HEAD-ből nem lehet push-olni ágat. Hozz létre ágat.', 'err'); return; }
+  const upRemote = b.upstream ? b.upstream.split('/')[0] : remotes[0].name;
+  const v = await formDlg('Push', [
+    { name: 'remote', label: 'Remote', type: 'select', value: upRemote, options: remotes.map((x) => x.name) },
+    { name: 'target', label: 'Cél ág', value: b.upstream ? b.upstream.slice(upRemote.length + 1) : b.name },
+    { name: 'upstream', label: 'Upstream beállítása (-u)', type: 'checkbox', value: !b.upstream },
+    { name: 'tags', label: 'Tagek push-olása is (--follow-tags)', type: 'checkbox', value: false },
+    { name: 'force', label: 'Force push (--force-with-lease)', type: 'checkbox', value: false },
+  ], 'Push', `Ág: ${b.name}${b.ahead ? ` · ${b.ahead} commit vár push-ra` : ''}`);
+  if (!v) return;
+  if (v.force && !(await confirmDlg('Force push', 'A force push felülírhatja a remote ág történetét. Biztos?', 'Force push', true))) return;
+  const args = ['push', '--progress'];
+  if (v.upstream) args.push('-u');
+  if (v.tags) args.push('--follow-tags');
+  if (v.force) args.push('--force-with-lease');
+  args.push(v.remote, `${b.name}:${v.target.trim() || b.name}`);
+  await op('Push', args);
+}
+
+async function newBranchDlg(start) {
+  const r = cur();
+  const v = await formDlg('Új ág', [
+    { name: 'name', label: 'Ág neve', placeholder: 'feature/uj-funkcio' },
+    { name: 'start', label: 'Kiindulópont', value: start || r.refs?.head || 'HEAD' },
+    { name: 'checkout', label: 'Checkout létrehozás után', type: 'checkbox', value: true },
+  ], 'Létrehozás');
+  if (!v || !v.name.trim()) return;
+  const name = v.name.trim().replace(/\s+/g, '-');
+  if (v.checkout) await op(`Új ág: ${name}`, ['checkout', '-b', name, v.start.trim() || 'HEAD']);
+  else await op(`Új ág: ${name}`, ['branch', name, v.start.trim() || 'HEAD']);
+}
+
+async function renameBranchDlg(b) {
+  const v = await formDlg('Ág átnevezése', [{ name: 'name', label: 'Új név', value: b.name }], 'Átnevezés');
+  if (v && v.name.trim() && v.name.trim() !== b.name) await op('Átnevezés', ['branch', '-m', b.name, v.name.trim()]);
+}
+
+async function upstreamDlg(b) {
+  const r = cur();
+  const v = await formDlg('Upstream beállítása', [{ name: 'up', label: 'Upstream (pl. origin/main)', type: 'select', value: b.upstream, options: ['', ...r.refs.remote.map((x) => x.name)].map((x) => ({ value: x, label: x || '(nincs – upstream törlése)' })) }], 'Mentés');
+  if (!v) return;
+  if (v.up) await op('Upstream', ['branch', `--set-upstream-to=${v.up}`, b.name]);
+  else await op('Upstream törlése', ['branch', '--unset-upstream', b.name]);
+}
+
+async function deleteBranch(b) {
+  const v = await formDlg('Ág törlése', [
+    { name: 'force', label: 'Törlés akkor is, ha nincs merge-elve (-D)', type: 'checkbox', value: false },
+    b.upstream ? { name: 'remote', label: `Remote ág törlése is (${b.upstream})`, type: 'checkbox', value: false } : null,
+  ].filter(Boolean), 'Törlés', `Törlöd a(z) "${b.name}" ágat?`);
+  if (!v) return;
+  const ok = await op(`Ág törlése: ${b.name}`, ['branch', v.force ? '-D' : '-d', b.name], { refresh: !v.remote });
+  if (ok != null && v.remote) {
+    const [rm, ...rest] = b.upstream.split('/');
+    await op(`Remote ág törlése: ${b.upstream}`, ['push', rm, '--delete', rest.join('/')]);
+  }
+}
+
+async function mergeDlg(ref) {
+  const r = cur();
+  const head = r.refs?.head;
+  if (!head) { toast('Detached HEAD-re nem lehet merge-elni.', 'err'); return; }
+  const v = await formDlg(`Merge → ${head}`, [
+    { name: 'ref', label: 'Melyik ágat / commitot', value: ref || '', placeholder: 'pl. feature/x' },
+    { name: 'mode', label: 'Mód', type: 'select', value: 'default', options: [
+      { value: 'default', label: 'Alapértelmezett (fast-forward ha lehet)' },
+      { value: 'noff', label: 'Mindig merge commit (--no-ff)' },
+      { value: 'ff', label: 'Csak fast-forward (--ff-only)' },
+      { value: 'squash', label: 'Squash (--squash, commit utána)' }] },
+  ], 'Merge');
+  if (!v || !v.ref.trim()) return;
+  const args = ['merge'];
+  if (v.mode === 'noff') args.push('--no-ff', '--no-edit');
+  else if (v.mode === 'ff') args.push('--ff-only');
+  else if (v.mode === 'squash') args.push('--squash');
+  else args.push('--no-edit');
+  args.push(v.ref.trim());
+  await op(`Merge ${v.ref.trim()} → ${head}`, args);
+  if (cur().status?.conflicted.length) { toast('Konfliktusok keletkeztek – oldd fel őket a Lokális változások nézetben.', 'err'); setView('changes'); }
+}
+
+async function rebase(onto) {
+  const r = cur();
+  if (!(await confirmDlg('Rebase', `A(z) "${r.refs.head}" ág commitjai újra lesznek játszva erre: "${onto}". Folytatod?`, 'Rebase'))) return;
+  await op(`Rebase → ${onto}`, ['-c', 'core.editor=true', 'rebase', '--autostash', onto]);
+  if (cur().status?.operation === 'rebase') setView('changes');
+}
+
+async function resetDlg(c) {
+  const v = await formDlg('Reset', [{ name: 'mode', label: 'Mód', type: 'select', value: 'mixed', options: [
+    { value: 'soft', label: 'Soft – a változások staged állapotban maradnak' },
+    { value: 'mixed', label: 'Mixed – a változások a working tree-ben maradnak' },
+    { value: 'hard', label: 'Hard – MINDEN lokális változás elvész!' }] }], 'Reset',
+  `A(z) "${cur().refs?.head || 'HEAD'}" erre a commitra áll: ${short(c.hash)} ${c.subject}`);
+  if (!v) return;
+  if (v.mode === 'hard' && !(await confirmDlg('Hard reset', 'Minden nem commitolt változás véglegesen elvész. Biztos?', 'Hard reset', true))) return;
+  await op(`Reset --${v.mode}`, ['reset', `--${v.mode}`, c.hash]);
+}
+
+async function tagDlg(target) {
+  const v = await formDlg('Új tag', [
+    { name: 'name', label: 'Tag neve', placeholder: 'v1.0.0' },
+    { name: 'target', label: 'Commit', value: target },
+    { name: 'message', label: 'Üzenet (annotált taghez, üres = lightweight)', type: 'textarea', rows: 3 },
+    { name: 'push', label: 'Push a remote-ra is', type: 'checkbox', value: false },
+  ], 'Létrehozás');
+  if (!v || !v.name.trim()) return;
+  const args = ['tag'];
+  if (v.message.trim()) args.push('-a', '-m', v.message.trim());
+  args.push(v.name.trim(), v.target.trim() || 'HEAD');
+  const ok = await op(`Tag: ${v.name.trim()}`, args, { refresh: !v.push });
+  if (ok != null && v.push) { const rm = await pickRemote(); if (rm) await op('Push tag', ['push', rm, `refs/tags/${v.name.trim()}`]); }
+}
+
+async function stashDlg() {
+  const r = cur();
+  const v = await formDlg('Stash', [
+    { name: 'message', label: 'Üzenet (opcionális)' },
+    { name: 'untracked', label: 'Nem követett fájlok is (-u)', type: 'checkbox', value: true },
+    { name: 'keep', label: 'Staged változások megtartása (--keep-index)', type: 'checkbox', value: false },
+    { name: 'staged', label: 'Csak a staged változások (--staged)', type: 'checkbox', value: false },
+  ], 'Stash');
+  if (!v) return;
+  const args = ['stash', 'push'];
+  if (v.untracked && !v.staged) args.push('-u');
+  if (v.keep) args.push('--keep-index');
+  if (v.staged) args.push('--staged');
+  if (v.message.trim()) args.push('-m', v.message.trim());
+  await op('Stash', args, { repo: r });
+}
+
+async function stashPop() {
+  await op('Stash pop', ['stash', 'pop']);
+}
+
+async function addRemoteDlg() {
+  const v = await formDlg('Remote hozzáadása', [
+    { name: 'name', label: 'Név', value: (cur().refs?.remotes || []).length ? '' : 'origin' },
+    { name: 'url', label: 'URL', placeholder: 'https://github.com/user/repo.git' },
+    { name: 'fetch', label: 'Fetch hozzáadás után', type: 'checkbox', value: true },
+  ], 'Hozzáadás');
+  if (!v || !v.name.trim() || !v.url.trim()) return;
+  const ok = await op('Remote hozzáadása', ['remote', 'add', v.name.trim(), v.url.trim()], { refresh: !v.fetch });
+  if (ok != null && v.fetch) await op('Fetch', ['fetch', v.name.trim()]);
+}
+
+// ── repositories ──
+async function pickFolder(title) {
+  try {
+    const res = await invoke('plugin:dialog|open', { options: { directory: true, multiple: false, title } });
+    return Array.isArray(res) ? res[0] : res;
+  } catch (e) { toast(e, 'err'); return null; }
+}
+
+async function openRepoDlg() {
+  const p = await pickFolder('Git repository megnyitása');
+  if (p) openRepo(p);
+}
+
+async function openRepo(path, { activate = true, quiet = false } = {}) {
+  const existing = S.repos.findIndex((r) => r.path.toLowerCase() === path.toLowerCase());
+  if (existing >= 0) { if (activate) switchRepo(existing); return; }
+  let info;
+  try { info = await invoke('open_repo', { path }); } catch (e) { if (!quiet) toast(e, 'err'); return; }
+  const again = S.repos.findIndex((r) => r.path.toLowerCase() === info.path.toLowerCase());
+  if (again >= 0) { if (activate) switchRepo(again); return; }
+  const repo = new Repo(info);
+  S.repos.push(repo);
+  S.settings.recent_repos = [info.path, ...(S.settings.recent_repos || []).filter((x) => x.toLowerCase() !== info.path.toLowerCase())].slice(0, 20);
+  if (activate) S.active = S.repos.length - 1;
+  if (!S.restoring) persistRepos();
+  if (activate) { renderAll(); await refreshAll(repo); }
+}
+
+async function switchRepo(i) {
+  S.active = i;
+  persistRepos();
+  document.querySelector('.console')?.remove();
+  document.querySelector('.ai-panel')?.remove();
+  renderAll();
+  await refreshAll(cur());
+}
+
+function closeRepo(i) {
+  S.repos.splice(i, 1);
+  if (S.active >= S.repos.length) S.active = S.repos.length - 1;
+  persistRepos();
+  renderAll();
+  if (cur()) refreshAll(cur());
+}
+
+async function cloneDlg() {
+  const v = await formDlg('Repository klónozása', [
+    { name: 'url', label: 'URL', placeholder: 'https://github.com/user/repo.git' },
+    { name: 'parent', label: 'Szülő mappa', value: localStorage.getItem('gs.cloneParent') || '', note: 'Ide kerül a repository mappája.' },
+    { name: 'name', label: 'Mappa neve (üres = a repository neve)' },
+  ], 'Klónozás');
+  if (!v || !v.url.trim()) return;
+  let parent = v.parent.trim();
+  if (!parent) { parent = await pickFolder('Hova klónozzam?'); if (!parent) return; }
+  localStorage.setItem('gs.cloneParent', parent);
+  const name = v.name.trim() || basename(v.url.trim().replace(/\/+$/, '')).replace(/\.git$/, '');
+  const dest = parent.replace(/[\\/]+$/, '') + '\\' + name;
+  setBusy(true, `Klónozás: ${v.url}…`);
+  try {
+    const info = await invoke('clone_repo', { url: v.url.trim(), dest });
+    toast(`Klónozva: ${info.path}`, 'ok');
+    await openRepo(info.path);
+  } catch (e) { toast('Klónozás sikertelen:\n' + e, 'err'); }
+  finally { setBusy(false); }
+}
+
+async function initDlg() {
+  const p = await pickFolder('Mappa az új repository-nak');
+  if (!p) return;
+  try { const info = await invoke('init_repo', { path: p }); toast(`Új repository: ${info.path}`, 'ok'); await openRepo(info.path); }
+  catch (e) { toast(e, 'err'); }
+}
+
+// ── settings ──
+async function settingsDlg() {
+  const s = S.settings;
+  const models = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'];
+  const els = {};
+  const fld = (name, label, el, note, full) => { els[name] = el; return h('label.field' + (full ? '.full' : ''), h('span', label), el, note ? h('span.note', note) : null); };
+  const sel = (opts, val) => { const e = h('select.inp', opts.map(([v, l]) => h('option', { value: v }, l))); e.value = val; return e; };
+  const gitVer = h('span.note', '');
+  const gitInp = h('input.inp', { value: s.git_path, placeholder: 'git (a PATH-ból) vagy C:\\Program Files\\Git\\cmd\\git.exe', spellcheck: 'false' });
+  const testGit = async () => { try { gitVer.textContent = '✓ ' + (await invoke('git_version', { path: gitInp.value || 'git' })); } catch (e) { gitVer.textContent = '✗ ' + e; } };
+  testGit();
+  const modelSel = sel([...models.map((m) => [m, m]), ['custom', 'Egyéb…']], models.includes(s.ai_model) ? s.ai_model : 'custom');
+  const customModel = h('input.inp', { value: models.includes(s.ai_model) ? '' : s.ai_model, placeholder: 'model id', style: { display: models.includes(s.ai_model) ? 'none' : '' } });
+  modelSel.addEventListener('change', () => (customModel.style.display = modelSel.value === 'custom' ? '' : 'none'));
+  const key = h('input.inp', { type: 'password', value: s.anthropic_api_key, placeholder: 'sk-ant-…', spellcheck: 'false' });
+  const body = h('div.settings-grid',
+    h('div.settings-sec', 'Git'),
+    h('label.field.full', h('span', 'git.exe útvonala'), h('div', { style: { display: 'flex', gap: '6px' } }, gitInp,
+      h('button.btn', { on: { click: async () => {
+        try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: 'git.exe kiválasztása', filters: [{ name: 'git', extensions: ['exe'] }] } }); if (p) { gitInp.value = p; testGit(); } } catch (e) { toast(e, 'err'); }
+      } } }, 'Tallózás…'), h('button.btn', { on: { click: testGit } }, 'Teszt')), gitVer),
+    fld('log_limit', 'Betöltött commitok száma', h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
+    h('div'),
+    h('div.settings-sec', 'Megjelenés'),
+    fld('theme', 'Téma', sel([['dark', 'Sötét'], ['light', 'Világos'], ['system', 'Rendszer szerint']], s.theme)),
+    fld('font_size', 'Betűméret', h('input.inp', { type: 'number', min: 10, max: 20, value: s.font_size })),
+    h('div.settings-sec', 'AI (Anthropic Claude)'),
+    h('label.field.full', h('span', 'Anthropic API kulcs'), key, h('span.note', 'A kulcs a GitStar beállításfájljában tárolódik ezen a gépen (settings.json az alkalmazás konfigurációs mappájában). Kulcs: console.anthropic.com')),
+    h('label.field', h('span', 'Modell'), modelSel, customModel, h('span.note', 'Alapértelmezés: claude-opus-5-5. Gyorsabb/olcsóbb: claude-haiku-5-5.')),
+    fld('ai_language', 'AI szövegek nyelve', sel([['hu', 'Magyar'], ['en', 'English']], s.ai_language)),
+    fld('commit_style', 'Commit üzenet stílus', sel([['conventional', 'Conventional Commits (feat: …)'], ['simple', 'Egyszerű, egy sor'], ['detailed', 'Részletes, felsorolással']], s.commit_style), null, true),
+  );
+  const ok = await modal({ title: 'Beállítások', body, wide: true, buttons: [{ label: 'Mégse', value: false }, { label: 'Mentés', value: true, primary: true }] });
+  if (!ok) return;
+  Object.assign(S.settings, {
+    git_path: gitInp.value.trim(),
+    log_limit: Math.max(100, +els.log_limit.value || 1500),
+    theme: els.theme.value,
+    font_size: Math.max(10, Math.min(20, +els.font_size.value || 13)),
+    anthropic_api_key: key.value.trim(),
+    ai_model: modelSel.value === 'custom' ? customModel.value.trim() || 'claude-opus-5-5' : modelSel.value,
+    ai_language: els.ai_language.value,
+    commit_style: els.commit_style.value,
+  });
+  await saveSettings();
+  applyTheme();
+  renderAll(true);
+  if (cur()) refreshAll(cur());
+}
+
+// ───────────────────────── boot ─────────────────────────
+
+async function boot() {
+  try { S.settings = await invoke('get_settings'); }
+  catch (e) { S.settings = { theme: 'dark', diff_mode: 'split', diff_context: 3, log_limit: 1500, recent_repos: [], open_repos: [] }; toast(e, 'err'); }
+  applyTheme();
+  matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.theme === 'system') { applyTheme(); renderToolbar(); } });
+  splitter(document.getElementById('side-split'), document.getElementById('sidebar'), { min: 160, max: 520, key: 'gs.sideW' });
+  renderAll();
+  const wanted = S.settings.active_repo;
+  S.restoring = true;
+  for (const p of S.settings.open_repos || []) await openRepo(p, { activate: false, quiet: true });
+  S.restoring = false;
+  const ai = S.repos.findIndex((r) => r.path.toLowerCase() === (wanted || '').toLowerCase());
+  S.active = S.repos.length ? (ai >= 0 ? ai : 0) : -1;
+  persistRepos();
+  renderAll();
+  if (cur()) await refreshAll(cur());
+
+  // refresh when the window gets focus (files may have changed outside)
+  let lastFocus = 0;
+  window.addEventListener('focus', () => {
+    if (!cur() || Date.now() - lastFocus < 1500) return;
+    lastFocus = Date.now();
+    refreshAll(cur());
+  });
+  // light polling of the working tree state
+  setInterval(async () => {
+    const r = cur();
+    if (!r || S.busy || document.hidden || !document.hasFocus() || document.querySelector('.overlay')) return;
+    const before = JSON.stringify(r.status);
+    await refreshStatus(r);
+    if (JSON.stringify(r.status) !== before) {
+      if (r.view === 'changes') renderAll(true);
+      else { renderSidebar(); renderToolbar(); renderStatusbar(); }
+    }
+  }, 5000);
+
+  document.addEventListener('keydown', (e) => {
+    if (document.querySelector('.overlay')) return;
+    const r = cur();
+    if (e.key === 'F5') { e.preventDefault(); if (r) refreshAll(r); }
+    else if (e.ctrlKey && e.key.toLowerCase() === 'o') { e.preventDefault(); openRepoDlg(); }
+    else if (e.ctrlKey && e.key === '`') { e.preventDefault(); toggleConsole(); }
+    else if (e.ctrlKey && e.key === '1' && r) { e.preventDefault(); setView('changes'); }
+    else if (e.ctrlKey && e.key === '2' && r) { e.preventDefault(); r.logRev = ''; r.logPath = ''; setView('history', true); }
+    else if (e.ctrlKey && e.key === '3' && r) { e.preventDefault(); setView('compare'); }
+    else if (e.ctrlKey && e.key === 'Tab' && S.repos.length > 1) { e.preventDefault(); switchRepo((S.active + (e.shiftKey ? S.repos.length - 1 : 1)) % S.repos.length); }
+    else if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); diffView().jump(e.key === 'ArrowDown' ? 1 : -1); }
+    else if (e.key === 'Escape') { document.querySelector('.ai-panel')?.remove(); }
+  });
+  document.addEventListener('contextmenu', (e) => { if (!e.target.closest('input,textarea,.diff-scroll,.ai-body,.cmeta,.console-out')) e.preventDefault(); });
+}
+
+boot();
