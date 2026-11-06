@@ -940,12 +940,24 @@ pub async fn add_to_gitignore(repo: String, pattern: String) -> Result<(), Strin
 // ───────────────────────────── commit ─────────────────────────────
 
 #[tauri::command]
-pub async fn commit(state: State<'_, AppState>, repo: String, message: String, amend: bool, signoff: bool, no_verify: bool) -> Result<String, String> {
+pub async fn commit(
+    state: State<'_, AppState>,
+    repo: String,
+    message: String,
+    amend: bool,
+    reset_author: Option<bool>,
+    signoff: bool,
+    no_verify: bool,
+) -> Result<String, String> {
     let git = state.git();
     blocking(move || {
         let mut a = vec!["commit", "--cleanup=strip", "-F", "-"];
         if amend {
             a.push("--amend");
+            // Author of the amended commit becomes the configured user.name / user.email.
+            if reset_author.unwrap_or(false) {
+                a.push("--reset-author");
+            }
         }
         if signoff {
             a.push("--signoff");
@@ -1220,4 +1232,65 @@ pub async fn app_info(state: State<'_, AppState>) -> Result<AppInfo, String> {
         settings_path: state.settings.path.to_string_lossy().into_owned(),
         os: format!("{} {}", std::env::consts::OS, std::env::consts::ARCH),
     })
+}
+
+// ───────────────────────────── git identity ─────────────────────────────
+
+#[derive(Serialize)]
+pub struct GitIdentity {
+    /// From `git config --global`.
+    pub global_name: String,
+    pub global_email: String,
+    /// What a commit in `repo` would use (repo config wins over global).
+    pub name: String,
+    pub email: String,
+}
+
+fn config_get(git: &Git, repo: Option<&str>, scope: Option<&str>, key: &str) -> String {
+    let mut args = vec!["config"];
+    if let Some(s) = scope {
+        args.push(s);
+    }
+    args.extend(["--get", key]);
+    git.raw(repo, &args, None).map(|o| if o.code == 0 { o.text().trim().to_string() } else { String::new() }).unwrap_or_default()
+}
+
+#[tauri::command]
+pub async fn git_identity(state: State<'_, AppState>, repo: Option<String>) -> Result<GitIdentity, String> {
+    let git = state.git();
+    blocking(move || {
+        let r = repo.as_deref().filter(|p| !p.is_empty());
+        let global_name = config_get(&git, None, Some("--global"), "user.name");
+        let global_email = config_get(&git, None, Some("--global"), "user.email");
+        let (name, email) = match r {
+            Some(p) => (config_get(&git, Some(p), None, "user.name"), config_get(&git, Some(p), None, "user.email")),
+            None => (global_name.clone(), global_email.clone()),
+        };
+        Ok(GitIdentity { global_name, global_email, name, email })
+    })
+    .await
+}
+
+/// Writes user.name / user.email to the global git config (empty = unset).
+#[tauri::command]
+pub async fn set_git_identity(state: State<'_, AppState>, name: String, email: String) -> Result<(), String> {
+    let git = state.git();
+    blocking(move || {
+        for (key, val) in [("user.name", name.trim()), ("user.email", email.trim())] {
+            if val.is_empty() {
+                // exit code 5 = key was not set: fine
+                let out = git.raw(None, &["config", "--global", "--unset", key], None)?;
+                if out.code != 0 && out.code != 5 {
+                    return Err(out.stderr.trim().to_string());
+                }
+            } else {
+                let out = git.raw(None, &["config", "--global", key, val], None)?;
+                if out.code != 0 {
+                    return Err(out.stderr.trim().to_string());
+                }
+            }
+        }
+        Ok(())
+    })
+    .await
 }

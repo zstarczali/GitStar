@@ -51,6 +51,8 @@ pub fn run() {
             commands::ai_analyze,
             commands::ai_test,
             commands::app_info,
+            commands::git_identity,
+            commands::set_git_identity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GitStar");

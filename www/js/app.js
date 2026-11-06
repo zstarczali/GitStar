@@ -555,12 +555,41 @@ function commitBox(r) {
     hint.className = 'hint' + (first > 72 ? ' warn' : '');
   };
   updHint();
+  const n = st.staged.length;
+  const commitBtn = h('button.btn.primary', { on: { click: () => doCommit(r) } });
+  const resetAuthor = h('input', { type: 'checkbox', checked: !!r.resetAuthor, on: { change: (e) => { r.resetAuthor = e.target.checked; } } });
+  const authorTxt = h('span');
+  const resetLbl = h('label.chk.amend-author', { title: t('A módosított commit szerzője a beállított git név és email lesz (--reset-author)') }, resetAuthor, authorTxt);
+  const loadIdent = async () => {
+    try {
+      const id = await invoke('git_identity', { repo: r.path });
+      authorTxt.textContent = id.name || id.email ? t('Szerző: {0}', `${id.name} <${id.email}>`) : t('Szerző: nincs beállítva (Beállítások → Git)');
+    } catch { authorTxt.textContent = t('Szerző frissítése'); }
+  };
+  const updBtn = () => {
+    commitBtn.disabled = !n && !r.amend && st.operation !== 'merge';
+    commitBtn.replaceChildren(icon('check'), (r.amend ? 'Amend' : 'Commit') + (n ? ` (${n})` : ''));
+    commitBtn.title = r.amend ? t('Az utolsó commit módosítása (üzenet és a staged változások)') : '';
+    resetLbl.style.display = r.amend ? '' : 'none';
+  };
   const amend = h('input', { type: 'checkbox', checked: r.amend, on: { change: async (e) => {
     r.amend = e.target.checked;
-    if (r.amend && !r.commitMsg.trim()) {
-      try { r.commitMsg = await invoke('head_message', { repo: r.path }); ta.value = r.commitMsg; updHint(); } catch {}
+    updBtn();
+    if (r.amend) {
+      loadIdent();
+      if (!r.commitMsg.trim()) {
+        try { r.commitMsg = r.amendMsg = await invoke('head_message', { repo: r.path }); ta.value = r.commitMsg; updHint(); } catch {}
+      }
+    } else {
+      r.resetAuthor = false;
+      resetAuthor.checked = false;
+      // Drop the message we loaded for amending if it was not edited.
+      if (r.amendMsg && r.commitMsg === r.amendMsg) { r.commitMsg = ''; ta.value = ''; updHint(); }
+      r.amendMsg = null;
     }
   } } });
+  updBtn();
+  if (r.amend) loadIdent();
   const aiBtn = h('button.btn.ai', { title: t('Commit üzenet generálása a staged diff alapján'), disabled: !st.staged.length || null, on: { click: async () => {
     aiBtn.disabled = true;
     const old = aiBtn.innerHTML;
@@ -575,11 +604,10 @@ function commitBox(r) {
     aiBtn.innerHTML = old;
     aiBtn.disabled = false;
   } } }, icon('sparkle'), t('AI üzenet'));
-  const n = st.staged.length;
   return h('div.commit-box',
     ta,
-    h('div.row', h('label.chk', amend, 'Amend'), hint, h('span.grow'), aiBtn,
-      h('button.btn.primary', { disabled: (!n && !r.amend && st.operation !== 'merge') || null, on: { click: () => doCommit(r) } }, icon('check'), n ? `Commit (${n})` : 'Commit')),
+    h('div.row', h('label.chk', { title: t('Az utolsó commit módosítása') }, amend, 'Amend'), hint, h('span.grow'), aiBtn, commitBtn),
+    resetLbl,
     !n && st.unstaged.length ? h('div.hint', t('Nincs staged fájl. Dupla kattintás vagy a + gomb egy fájlon stage-eli.')) : null);
 }
 
@@ -589,12 +617,17 @@ async function doCommit(r) {
   if (!r.status.staged.length && !r.amend && r.status.operation !== 'merge') { toast(t('Nincs staged változás.'), 'err'); return; }
   setBusy(true, 'Commit…');
   try {
-    const out = await invoke('commit', { repo: r.path, message: msg, amend: r.amend, signoff: false, noVerify: false });
+    const out = await invoke('commit', { repo: r.path, message: msg, amend: r.amend, resetAuthor: r.amend && !!r.resetAuthor, signoff: false, noVerify: false });
     toast(out.trim().split('\n')[0] || t('Commit kész'), 'ok');
     r.commitMsg = '';
     r.amend = false;
+    r.resetAuthor = false;
+    r.amendMsg = null;
   } catch (e) {
-    toast(t('Commit sikertelen:\n') + e, 'err');
+    if (/tell me who you are|identity unknown|empty ident/i.test(String(e))) {
+      toast(t('Nincs beállítva git név és email. Add meg a Beállítások → Git részben.'), 'err', 8000);
+      settingsDlg();
+    } else toast(t('Commit sikertelen:\n') + e, 'err');
   } finally {
     setBusy(false);
     await refreshAll(r);
@@ -1520,6 +1553,10 @@ async function aboutDlg() {
 // ── settings ──
 async function settingsDlg() {
   const s = S.settings;
+  let ident = { global_name: '', global_email: '' };
+  try { ident = await invoke('git_identity', { repo: null }); } catch {}
+  const gitName = h('input.inp', { value: ident.global_name, placeholder: t('Teljes név'), spellcheck: 'false' });
+  const gitEmail = h('input.inp', { type: 'email', value: ident.global_email, placeholder: 'nev@example.com', spellcheck: 'false' });
   const models = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-fable-5-1'];
   const els = {};
   const fld = (name, label, el, note, full) => { els[name] = el; return h('label.field' + (full ? '.full' : ''), h('span', label), el, note ? h('span.note', note) : null); };
@@ -1575,6 +1612,9 @@ async function settingsDlg() {
       h('button.btn', { on: { click: async () => {
         try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: t('git.exe kiválasztása'), filters: [{ name: 'git', extensions: ['exe'] }] } }); if (p) { gitInp.value = p; testGit(); } } catch (e) { toast(e, 'err'); }
       } } }, t('Tallózás…')), h('button.btn', { on: { click: testGit } }, t('Teszt'))), gitVer),
+    h('label.field', h('span', t('Név (user.name)')), gitName),
+    h('label.field', h('span', t('Email (user.email)')), gitEmail),
+    h('div.note.full', t('A név és az email a globális git beállításba kerül (git config --global), minden repóra érvényes, ahol nincs saját beállítás.')),
     fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
     h('div'),
     h('div.settings-sec', t('Megjelenés')),
@@ -1606,6 +1646,10 @@ async function settingsDlg() {
     commit_style: els.commit_style.value,
   });
   await saveSettings();
+  if (gitName.value.trim() !== ident.global_name || gitEmail.value.trim() !== ident.global_email) {
+    try { await invoke('set_git_identity', { name: gitName.value, email: gitEmail.value }); toast(t('Git név és email mentve.'), 'ok'); }
+    catch (e) { toast(t('A git név/email mentése nem sikerült: {0}', String(e)), 'err'); }
+  }
   applyLang();
   applyTheme();
   renderAll(true);

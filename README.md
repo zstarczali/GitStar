@@ -52,6 +52,7 @@ Nagyon nagy diff esetén (Claude-nál 600 000, DeepSeek-nél 300 000 karakter fe
 | Billentyű | Művelet |
 |---|---|
 | F5 | Frissítés |
+| F1 | Névjegy (verzió, git, AI szolgáltató, beállításfájl helye) |
 | Ctrl+O | Repository megnyitása |
 | Ctrl+1 / 2 / 3 | Változások / Történet / Összehasonlítás |
 | Ctrl+Tab | Következő repo fül |
