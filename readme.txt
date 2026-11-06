@@ -5,7 +5,6 @@ Download
 --------
 On the GitHub Actions page for a successful "Build installers" run,
 download the ZIP for your platform from Artifacts and extract it.
-If downloading from GitHub Releases, choose the installer file directly.
 
 GitStar uses the Git executable installed on your computer. Run
 "git --version" in a terminal to check that Git is available. If GitStar

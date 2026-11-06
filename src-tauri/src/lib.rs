@@ -3,6 +3,7 @@ mod commands;
 mod git;
 mod graph;
 mod settings;
+mod update;
 
 use commands::AppState;
 use tauri::Manager;
@@ -81,6 +82,9 @@ pub fn run() {
             commands::app_info,
             commands::git_identity,
             commands::set_git_identity,
+            update::check_for_update,
+            update::download_and_install_update,
+            update::update_server_check,
         ])
         .run(tauri::generate_context!())
         .expect("error while running GitStar");

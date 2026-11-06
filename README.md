@@ -16,6 +16,7 @@ GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style int
 - **In-progress operations** — Continue, skip, or abort a merge, rebase, cherry-pick, or revert where Git supports it. Resolve conflicts using ours, theirs, or manual edits.
 - **Git console** — Run Git commands with command history and view output from app operations.
 - **Themes and layout** — Choose dark, light, AI neon, retro, modern, modern dark, or system themes, adjust the font size, and resize panels. The neon theme includes gradients, animated lines, and custom icons; the retro theme looks like an 8-bit home computer on a CRT (monospace font, scanlines, striped toolbar, blinking cursor); the modern theme is light frosted glass on a soft pastel gradient (rounded controls, gradient buttons, pill toggles), and modern dark is the same glass look on a deep aurora gradient.
+- **Self-update** — GitStar looks for a newer installer at startup (and from **About → Check for updates**). It reads the download folder set in Settings (default `https://www.c64va.pro/downloads/GitStar/`), downloads the installer for the platform with a progress bar, runs it, and restarts. Upload the installers from the GitHub Actions build there with their original names, such as `GitStar_0.3.0_x64-setup.exe`.
 - **English and Hungarian** — Set the interface language to automatic, Hungarian, or English in Settings. Backend errors use the selected language.
 
 ## Running from source
@@ -49,9 +50,9 @@ gh workflow run build.yml --ref main
 | macOS Intel (x64) | `.dmg` |
 | Linux x64 | `.deb`, `.rpm`, `.AppImage` |
 
-Download the installers from the workflow run's **Artifacts** section. Enable the **release** option to upload the installers to a versioned GitHub release, created as a draft if it does not already exist.
+Download the installers from the workflow run's **Artifacts** section, then upload them with their original names to the update folder (see **Self-update**).
 
-The [installation guide](readme.txt) covers every target. It is uploaded as the `GitStar-installation-guide` artifact and attached to the release as `readme.txt` when the release option is enabled.
+The [installation guide](readme.txt) covers every target. It is uploaded as the `GitStar-installation-guide` artifact.
 
 ## AI setup
 

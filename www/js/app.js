@@ -263,6 +263,7 @@ function renderStatusbar() {
     st ? h('span', t('{0} staged · {1} változott', st.staged.length, st.unstaged.length) + (st.conflicted.length ? t(' · {0} konfliktus', st.conflicted.length) : '')) : null,
     r ? h('span', t('{0} commit', r.commits.length)) : null,
     h('span', t('AI: {0}', aiKey() ? aiModel() : t('nincs kulcs'))),
+    S.update?.updateAvailable ? h('span.update-status', { title: t('Kattints a telepítéshez'), on: { click: () => updateShowAvailable() } }, icon('fetch'), t('Frissítés elérhető: v{0}', S.update.latestVersion)) : null,
   );
 }
 
@@ -1681,10 +1682,12 @@ async function aboutDlg() {
     h('div.about-foot', t('Rust + Tauri 2, a git műveleteket a git.exe végzi. AI: Anthropic Claude vagy DeepSeek.')),
     h('div.about-copy', '© 2026 Zsolt Tarczali'));
   const res = await modal({ title: t('Névjegy'), body, buttons: [
+    { label: t('Frissítések keresése'), value: 'update' },
     { label: t('Beállítások mappa'), value: 'folder' },
     { label: t('Másolás'), value: 'copy' },
     { label: t('Bezárás'), value: false, primary: true },
   ] });
+  if (res === 'update') checkForAppUpdate();
   if (res === 'copy') { await navigator.clipboard.writeText(text).catch(() => {}); toast(t('Vágólapra másolva')); }
   if (res === 'folder' && info.settings_path) invoke('reveal_in_explorer', { path: info.settings_path }).catch((e) => toast(e, 'err'));
 }
@@ -1745,6 +1748,16 @@ async function settingsDlg() {
     } finally { aiTestBtn.disabled = false; }
   } } }, t('Teszt'));
   providerSel.addEventListener('change', () => { aiTestOut.textContent = ''; });
+  const updCheck = h('input', { type: 'checkbox', checked: s.update_check !== false });
+  const updServer = h('input.inp', { value: s.update_server || '', placeholder: 'https://www.c64va.pro/downloads/GitStar/', spellcheck: 'false' });
+  // checks the address, saves it, then looks for a new version there
+  const saveUpdServer = async () => {
+    try { await invoke('update_server_check', { url: updServer.value }); }
+    catch (e) { toast(String(e), 'err'); return; }
+    S.settings.update_server = updServer.value.trim();
+    await saveSettings();
+    checkForAppUpdate();
+  };
   const body = h('div.settings-grid',
     h('div.settings-sec', 'Git'),
     h('label.field.full', h('span', t('git.exe útvonala')), h('div', { style: { display: 'flex', gap: '6px' } }, gitInp,
@@ -1768,6 +1781,11 @@ async function settingsDlg() {
     claudeBox,
     dsBox,
     fld('ai_language', t('AI szövegek nyelve'), sel([['hu', t('Magyar')], ['en', 'English']], s.ai_language)),
+    h('div.settings-sec', t('Frissítés')),
+    h('label.chk.full', updCheck, t('Új verzió keresése induláskor')),
+    h('label.field.full', h('span', t('Letöltési mappa címe')), h('div', { style: { display: 'flex', gap: '6px' } }, updServer,
+      h('button.btn', { on: { click: () => saveUpdServer() } }, t('Keresés most'))),
+      h('span.note', t('Itt keresi a GitStar a telepítőket (pl. GitStar_0.3.0_x64-setup.exe). Üres = alapértelmezett.'))),
     fld('commit_style', t('Commit üzenet stílus'), sel([['conventional', 'Conventional Commits (feat: …)'], ['simple', t('Egyszerű, egy sor')], ['detailed', t('Részletes, felsorolással')]], s.commit_style), null, true),
   );
   const ok = await modal({ title: t('Beállítások'), body, wide: true, buttons: [{ label: t('Mégse'), value: false }, { label: t('Mentés'), value: true, primary: true }] });
@@ -1786,7 +1804,10 @@ async function settingsDlg() {
     ai_language: els.ai_language.value,
     commit_style: els.commit_style.value,
     pull_mode: els.pull_mode.value,
+    update_check: updCheck.checked,
   });
+  try { await invoke('update_server_check', { url: updServer.value }); S.settings.update_server = updServer.value.trim(); }
+  catch (e) { toast(String(e), 'err'); }
   await saveSettings();
   if (gitName.value.trim() !== ident.global_name || gitEmail.value.trim() !== ident.global_email) {
     try { await invoke('set_git_identity', { name: gitName.value, email: gitEmail.value }); toast(t('Git név és email mentve.'), 'ok'); }
@@ -1796,6 +1817,123 @@ async function settingsDlg() {
   applyTheme();
   renderAll(true);
   if (cur()) refreshAll(cur());
+}
+
+// ── self-update (same flow as the Visual Assembler) ──
+// The newest installer is looked up in the download folder (Settings → Update);
+// "Install now" downloads it with a progress bar, starts it and GitStar restarts.
+
+let updBusy = false;
+
+function updateDlgEls() {
+  let ov = document.getElementById('update-ov');
+  if (ov) return ov.els;
+  const els = {
+    title: h('div.modal-h'), msg: h('div.desc.update-msg'),
+    bar: h('div.update-bar-fill'), text: h('div.update-progress-text'),
+    skip: h('button.btn', t('Kihagyom ezt a verziót')),
+    close: h('button.btn', t('Bezárás')),
+    install: h('button.btn.primary', icon('fetch'), t('Telepítés most')),
+  };
+  els.prog = h('div.update-progress', h('div.update-bar', els.bar), els.text);
+  ov = h('div.overlay#update-ov',
+    h('div.modal.update-dlg', els.title, h('div.modal-b', els.msg, els.prog), h('div.modal-f', els.skip, els.close, els.install)));
+  ov.els = els;
+  const shut = () => { if (!updBusy) { ov.remove(); document.removeEventListener('keydown', onKey, true); } };
+  function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); shut(); } }
+  els.close.addEventListener('click', shut);
+  els.skip.addEventListener('click', () => {
+    S.settings.update_skip = S.update?.latestVersion || '';
+    saveSettings();
+    shut();
+  });
+  els.install.addEventListener('click', () => installUpdate());
+  ov.addEventListener('mousedown', (e) => { if (e.target === ov) shut(); });
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(ov);
+  return els;
+}
+
+/** state: null = hidden, -1 = indeterminate (animated), 0..100 = percent */
+function updateProgress(state, label = '') {
+  const els = updateDlgEls();
+  els.prog.style.display = state === null ? 'none' : '';
+  els.bar.classList.toggle('indet', state === -1);
+  els.bar.style.width = state >= 0 ? state + '%' : '';
+  els.text.textContent = label;
+}
+
+function updateShow({ title, msg, install = false, skip = false, closeLabel = t('Bezárás') }) {
+  const els = updateDlgEls();
+  els.title.textContent = title;
+  els.msg.textContent = msg;
+  els.install.style.display = install ? '' : 'none';
+  els.skip.style.display = skip ? '' : 'none';
+  els.close.textContent = closeLabel;
+  els.close.disabled = false;
+  if (!install) updateProgress(null);
+}
+
+function updateShowAvailable() {
+  const u = S.update;
+  if (!u?.updateAvailable) return;
+  updateShow({ title: t('Új verzió érhető el'),
+    msg: t('Elérhető a GitStar {0} (most: {1}). Letöltöm és telepítem? A GitStar a telepítés után újraindul.', u.latestVersion, u.currentVersion),
+    install: true, skip: true, closeLabel: t('Később') });
+  updateProgress(null);
+}
+
+async function checkForAppUpdate({ silent = false } = {}) {
+  if (updBusy) return;
+  if (!silent) { updateShow({ title: t('Frissítések keresése'), msg: t('Új verzió keresése…') }); updateProgress(-1); }
+  updBusy = true;
+  let info;
+  try { info = await invoke('check_for_update'); }
+  catch (e) {
+    updBusy = false;
+    if (!silent) updateShow({ title: t('Frissítések keresése'), msg: t('A frissítés ellenőrzése nem sikerült: {0}', String(e)) });
+    return;
+  }
+  updBusy = false;
+  S.update = info;
+  renderStatusbar();
+  if (!info?.supported) { if (!silent) updateShow({ title: t('Frissítések keresése'), msg: t('Ezen a platformon nincs automatikus frissítés.') }); return; }
+  if (!info.updateAvailable) { if (!silent) updateShow({ title: t('Frissítések keresése'), msg: t('A GitStar naprakész (v{0}).', info.currentVersion) }); return; }
+  if (silent && (S.settings.update_skip === info.latestVersion || document.querySelector('.overlay'))) return;
+  updateShowAvailable();
+}
+
+async function installUpdate() {
+  const u = S.update;
+  if (updBusy || !u?.updateAvailable) return;
+  if (S.busy && !(await confirmDlg(t('Frissítés'), t('Egy git művelet még fut. Biztosan frissítesz most?'), t('Frissítés')))) return;
+  const els = updateDlgEls();
+  updBusy = true;
+  els.install.style.display = 'none';
+  els.skip.style.display = 'none';
+  els.close.disabled = true;
+  els.msg.textContent = t('A GitStar {0} letöltése…', u.latestVersion);
+  updateProgress(-1);
+  let unlisten = null;
+  try {
+    const mb = (n) => (n / 1048576).toFixed(1);
+    unlisten = await window.__TAURI__.event.listen('update-download-progress', ({ payload: { received, total } }) => {
+      if (total > 0) updateProgress(Math.min(100, Math.round((received * 100) / total)), `${mb(received)} / ${mb(total)} MB`);
+      else updateProgress(-1, `${mb(received)} MB`);
+    });
+    const res = await invoke('download_and_install_update', { version: u.latestVersion });
+    updateProgress(100);
+    if (res.restarting) {
+      els.msg.textContent = t('A telepítő elindult, a GitStar most bezárul és újraindul.');
+    } else {
+      updBusy = false;
+      updateShow({ title: t('Új verzió érhető el'), msg: t('A telepítő megnyílt ({0}). Fejezd be a telepítést, majd indítsd újra a GitStart.', res.path) });
+    }
+  } catch (e) {
+    updBusy = false;
+    updateShow({ title: t('Új verzió érhető el'), msg: t('A frissítés nem sikerült: {0}', String(e)), install: true });
+    updateProgress(null);
+  } finally { unlisten?.(); }
 }
 
 // ───────────────────────── boot ─────────────────────────
@@ -1852,6 +1990,9 @@ async function boot() {
     else if (e.key === 'Escape') { document.querySelector('.ai-panel')?.remove(); }
   });
   document.addEventListener('contextmenu', (e) => { if (!e.target.closest('input,textarea,.diff-scroll,.ai-body,.cmeta,.console-out')) e.preventDefault(); });
+
+  // quiet update check a little after startup (Settings → Update)
+  if (S.settings.update_check !== false) setTimeout(() => checkForAppUpdate({ silent: true }), 4000);
 }
 
 boot();

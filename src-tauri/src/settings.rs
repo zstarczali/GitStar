@@ -49,6 +49,12 @@ pub struct Settings {
     pub diff_wrap: bool,
     pub log_limit: u32,
     pub font_size: u32,
+    /// Folder with the installers (empty = update::UPDATE_SERVER_DEFAULT)
+    pub update_server: String,
+    /// Look for a new version at startup
+    pub update_check: bool,
+    /// Version the user chose to skip ("Skip this version")
+    pub update_skip: String,
 }
 
 impl Default for Settings {
@@ -75,6 +81,9 @@ impl Default for Settings {
             diff_wrap: false,
             log_limit: 1500,
             font_size: 13,
+            update_server: String::new(),
+            update_check: true,
+            update_skip: String::new(),
         }
     }
 }

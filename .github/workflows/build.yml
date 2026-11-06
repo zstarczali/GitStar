@@ -12,14 +12,9 @@ name: Build installers
 
 on:
   workflow_dispatch:
-    inputs:
-      release:
-        description: "Also create / update a draft GitHub release with the installers"
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: build-${{ github.ref }}
@@ -102,31 +97,3 @@ jobs:
           name: GitStar-installation-guide
           if-no-files-found: error
           path: readme.txt
-
-  release:
-    name: Draft release
-    if: ${{ inputs.release }}
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Create or update the draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
-          TAG="v$VERSION"
-          ls -la dist
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/* --clobber
-          else
-            gh release create "$TAG" dist/* --draft --target "$GITHUB_SHA" \
-              --title "GitStar $VERSION" \
-              --notes "GitStar $VERSION installers (Windows x64/ARM64, macOS Apple Silicon/Intel, Linux x64). Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. The installers are not code-signed."
-          fi
