@@ -1,4 +1,8 @@
-# GitStar
+<p align="center">
+  <img src="assets/icon.svg" alt="GitStar logo" width="200" height="200">
+</p>
+
+<h1 align="center">GitStar</h1>
 
 GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style interface. It runs Git operations through the installed Git executable, so hooks, credential helpers, Git LFS, and Git configuration work as they do on the command line.
 
