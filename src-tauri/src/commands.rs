@@ -1019,40 +1019,81 @@ pub async fn git_op(state: State<'_, AppState>, repo: String, args: Vec<String>)
 
 // ───────────────────────────── shell helpers ─────────────────────────────
 
-#[tauri::command]
-pub fn reveal_in_explorer(path: String) -> Result<(), String> {
-    let p = path.replace('/', "\\");
-    let mut cmd = std::process::Command::new("explorer");
-    if Path::new(&p).is_file() {
-        cmd.arg(format!("/select,{p}"));
-    } else {
-        cmd.arg(&p);
-    }
+use std::process::Command as Proc;
+
+fn spawn(cmd: &mut Proc) -> Result<(), String> {
     cmd.spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
+/// Shows a file (selected) or a folder in the system file manager.
 #[tauri::command]
-pub fn open_file(path: String) -> Result<(), String> {
-    std::process::Command::new("explorer")
-        .arg(path.replace('/', "\\"))
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+pub fn reveal_in_explorer(path: String) -> Result<(), String> {
+    let is_file = Path::new(&path).is_file();
+    #[cfg(windows)]
+    {
+        let p = path.replace('/', "\\");
+        let mut cmd = Proc::new("explorer");
+        if is_file { cmd.arg(format!("/select,{p}")) } else { cmd.arg(&p) };
+        spawn(&mut cmd)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = Proc::new("open");
+        if is_file { cmd.args(["-R", &path]) } else { cmd.arg(&path) };
+        spawn(&mut cmd)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        // xdg-open cannot select a file: open its folder.
+        let dir = if is_file { Path::new(&path).parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or(path) } else { path };
+        spawn(Proc::new("xdg-open").arg(dir))
+    }
 }
 
+/// Opens a file with its default application.
+#[tauri::command]
+pub fn open_file(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    return spawn(Proc::new("explorer").arg(path.replace('/', "\\")));
+    #[cfg(target_os = "macos")]
+    return spawn(Proc::new("open").arg(&path));
+    #[cfg(not(any(windows, target_os = "macos")))]
+    return spawn(Proc::new("xdg-open").arg(&path));
+}
+
+/// Opens a terminal in the given folder.
 #[tauri::command]
 pub fn open_terminal(path: String) -> Result<(), String> {
-    // Windows Terminal if installed, else cmd.exe
-    let wt = std::process::Command::new("wt").args(["-d", &path]).spawn();
-    if wt.is_ok() {
-        return Ok(());
+    #[cfg(windows)]
+    {
+        // Windows Terminal if installed, else cmd.exe
+        if Proc::new("wt").args(["-d", &path]).spawn().is_ok() {
+            return Ok(());
+        }
+        spawn(Proc::new("cmd").args(["/C", "start", "", "cmd", "/K"]).current_dir(&path))
     }
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", "cmd", "/K"])
-        .current_dir(&path)
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+    #[cfg(target_os = "macos")]
+    {
+        spawn(Proc::new("open").args(["-a", "Terminal", &path]))
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        // First terminal emulator that starts wins.
+        let tries: [(&str, Vec<String>); 6] = [
+            ("x-terminal-emulator", vec![]),
+            ("gnome-terminal", vec![format!("--working-directory={path}")]),
+            ("konsole", vec!["--workdir".into(), path.clone()]),
+            ("xfce4-terminal", vec![format!("--working-directory={path}")]),
+            ("kitty", vec!["--directory".into(), path.clone()]),
+            ("xterm", vec![]),
+        ];
+        for (exe, args) in tries {
+            if Proc::new(exe).args(&args).current_dir(&path).spawn().is_ok() {
+                return Ok(());
+            }
+        }
+        Err(tr("Nem található terminál program.", "No terminal application was found."))
+    }
 }
 
 // ───────────────────────────── AI ─────────────────────────────

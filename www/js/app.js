@@ -1650,7 +1650,7 @@ async function settingsDlg() {
     h('div.settings-sec', 'Git'),
     h('label.field.full', h('span', t('git.exe útvonala')), h('div', { style: { display: 'flex', gap: '6px' } }, gitInp,
       h('button.btn', { on: { click: async () => {
-        try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: t('git.exe kiválasztása'), filters: [{ name: 'git', extensions: ['exe'] }] } }); if (p) { gitInp.value = p; testGit(); } } catch (e) { toast(e, 'err'); }
+        try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: t('git.exe kiválasztása'), ...(/Windows/i.test(navigator.userAgent) ? { filters: [{ name: 'git', extensions: ['exe'] }] } : {}) } }); if (p) { gitInp.value = p; testGit(); } } catch (e) { toast(e, 'err'); }
       } } }, t('Tallózás…')), h('button.btn', { on: { click: testGit } }, t('Teszt'))), gitVer),
     h('label.field', h('span', t('Név (user.name)')), gitName),
     h('label.field', h('span', t('Email (user.email)')), gitEmail),
