@@ -1,104 +1,99 @@
 # GitStar
 
-Git kliens Windowsra, **Tauri 2 + Rust** backenddel és Fork-szerű felülettel.
-Minden git műveletet a `git.exe` hajt végre (hookok, credential helper, LFS, config ugyanúgy működik, mint parancssorból).
+GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style interface. It runs Git operations through the installed Git executable, so hooks, credential helpers, Git LFS, and Git configuration work as they do on the command line.
 
-## Funkciók
+## Features
 
-- **Repository-k**: megnyitás, klónozás, init, több repo fülön, legutóbbiak listája
-- **Lokális változások**: unstaged / staged / konfliktus listák, stage / unstage / elvetés fájlonként, **hunkonként és soronként** (kattintás a sorszámra, Shift+kattintás tartomány), `.gitignore`-ba vétel
-- **Commit**: amend, Ctrl+Enter, 72 karakteres összefoglaló-figyelés, merge üzenet előtöltés
-- **AI commit üzenet** (Anthropic API kulccsal): a staged diff + a legutóbbi commitok stílusa alapján, Conventional / egyszerű / részletes stílusban, magyarul vagy angolul
-- **Történet**: commit gráf (sávok, merge-ek, színek), virtualizált lista, ref címkék, keresés üzenet / hash / szerző / tartalom (`-S`) / útvonal szerint, fájl előzmények, blame
-- **Fejlett vizuális diff**: egymás melletti és egyesített nézet, **szó szintű kiemelés**, minimap a változásokkal, ugrás változásról változásra (Alt+↑/↓), kontextus 3/10/25 sor vagy teljes fájl, whitespace ignorálás, sortörés, **kép diff** (egymás mellett / átúsztatás), konfliktus nézet jelölőkkel
-- **Összehasonlítás**: bármely két ág / tag / commit vagy a working tree, merge-base (A...B) mód, csak az egyik oldalon lévő commitok listája
-- **AI diff elemzés és összehasonlítás**: commit magyarázat, két ág/revízió AI-összehasonlítása (mit hoz be, kockázatok, merge problémák), fájl diff elemzése (összefoglaló, kérdezés nélkül)
-- **Ágak / remote-ok / tagek / stash-ek**: checkout (stash-elési opcióval), új ág, átnevezés, törlés (remote-on is), upstream, merge (ff / no-ff / ff-only / squash), rebase, cherry-pick, revert, reset (soft/mixed/hard), fetch / pull (merge/rebase/ff-only, autostash) / push (upstream, force-with-lease, tagek), tag létrehozás/push/törlés, stash push/apply/pop/drop/branch, remote hozzáadás/URL/törlés
-- **Folyamatban lévő merge/rebase/cherry-pick/revert** sáv: folytatás / kihagyás / megszakítás, konfliktus feloldás ours / theirs / kézi
-- **Git konzol** (Ctrl+`): bármilyen git parancs, előzményekkel; minden művelet kimenete itt is látszik
-- **Sötét / világos / AI (neon) / rendszer téma**: az AI téma színátmenetes neon felületet, animált vonalakat és saját, „AI-os” ikonkészletet használ; állítható betűméret, átméretezhető panelek
-- **Magyar és angol felület** (Beállítások → Felület nyelve: automatikus / Magyar / English), a háttér hibaüzenetei is a választott nyelven jönnek
+- **Repositories** — Open, clone, and initialize repositories, work across tabs, and reopen recent repositories.
+- **Local changes** — View unstaged, staged, and conflicting files. Stage, unstage, or discard changes by file, **hunk, or line**. Click a line number to select it or Shift-click to select a range. Add files to `.gitignore`.
+- **Commits** — Amend commits, use Ctrl+Enter to commit, check the summary against a 72-character limit, and start with a prefilled merge message.
+- **AI commit messages** — Generate Conventional Commits, simple summaries, or detailed messages in English or Hungarian using the staged diff and recent commit style.
+- **History** — Browse a color-coded commit graph with merge lanes, a virtualized list, and ref labels. Search by message, hash, author, content (`-S`), or path, and view file history and blame.
+- **Visual diffs** — Switch between side-by-side and unified views with **word-level highlighting**. Navigate changes with the minimap or Alt+↑ / Alt+↓. Choose 3, 10, or 25 lines of context or show the full file. Ignore whitespace, wrap lines, compare images side by side or with a slider, and inspect conflict markers.
+- **Comparisons** — Compare branches, tags, commits, or the working tree. Use merge-base mode (`A...B`) and see commits unique to each side.
+- **AI diff analysis** — Explain a commit, compare branches or revisions for incoming changes, risks, and merge issues, or summarize an individual file diff.
+- **Branches, remotes, tags, and stashes** — Check out branches with optional stashing, create, rename, or delete local and remote branches, and set upstreams. Merge with fast-forward, no-fast-forward, fast-forward-only, or squash. Rebase, cherry-pick, revert, or reset in soft, mixed, or hard mode. Fetch, pull with merge, rebase, or fast-forward-only and optional autostash, and push with upstream, force-with-lease, or tag options. Create, push, or delete tags, push, apply, pop, drop, or branch from stashes, and add, edit, or remove remotes.
+- **In-progress operations** — Continue, skip, or abort a merge, rebase, cherry-pick, or revert where Git supports it. Resolve conflicts using ours, theirs, or manual edits.
+- **Git console** — Run Git commands with command history and view output from app operations.
+- **Themes and layout** — Choose dark, light, AI neon, or system themes, adjust the font size, and resize panels. The neon theme includes gradients, animated lines, and custom icons.
+- **English and Hungarian** — Set the interface language to automatic, Hungarian, or English in Settings. Backend errors use the selected language.
 
-## Futtatás
+## Running from source
 
-Előfeltétel: Rust (stable), Node.js, git, Windows-on WebView2 (Windows 11-en alapból megvan); Linuxon a Tauri függőségei (webkit2gtk 4.1 stb.).
+Install stable Rust, Node.js, and Git. On Windows, WebView2 is required and comes with Windows 11. On Linux, install the Tauri system dependencies, including WebKitGTK 4.1.
 
 ```bash
 npm install
-```
-
-```bash
 npm run dev
 ```
 
-NSIS telepítő készítése helyben Windowson (a `src-tauri/target/release/bundle` alá):
+To build an NSIS installer locally on Windows, run the following command. The installer is written to `src-tauri/target/release/bundle`.
 
 ```bash
 npm run build -- --bundles nsis
 ```
 
-### Telepítők GitHub Actions-szel
+### Building installers with GitHub Actions
 
-A `.github/workflows/build.yml` workflow **csak kézzel indul** (nincs push / PR trigger):
-GitHub → *Actions* → *Build installers* → *Run workflow*, vagy parancssorból:
+The `.github/workflows/build.yml` workflow runs **only when manually triggered**. On GitHub, go to **Actions → Build installers → Run workflow**. You can also use the GitHub CLI.
 
 ```bash
 gh workflow run build.yml --ref main
 ```
 
-| Platform | Telepítő |
+| Platform | Installer |
 |---|---|
 | Windows x64 | NSIS `.exe` |
-| Windows ARM64 | NSIS `.exe` (x64 gépen keresztfordítva) |
+| Windows ARM64 | NSIS `.exe` (cross-compiled on x64) |
 | macOS Apple Silicon (ARM64) | `.dmg` |
 | macOS Intel (x64) | `.dmg` |
 | Linux x64 | `.deb`, `.rpm`, `.AppImage` |
 
-A telepítők a futás *Artifacts* részéből tölthetők le. Ha indításkor bepipálod a *release* opciót,
-egy `v<verzió>` draft GitHub release is készül (vagy frissül) a telepítőkkel.
-A [részletes telepítési útmutató](readme.txt) minden platformot lefed. A futásnál
-`GitStar-installation-guide` néven, a draft release-ben `readme.txt` néven érhető el.
+Download the installers from the workflow run's **Artifacts** section. Enable the **release** option to upload the installers to a versioned GitHub release, created as a draft if it does not already exist.
 
-## AI beállítás
+The [installation guide](readme.txt) covers every target. It is uploaded as the `GitStar-installation-guide` artifact and attached to the release as `readme.txt` when the release option is enabled.
 
-Beállítások → AI → *AI szolgáltató*: **Anthropic Claude** vagy **DeepSeek**.
+## AI setup
 
-- **Claude**: Anthropic API kulcs (console.anthropic.com). Alapértelmezett modell: `claude-opus-5-5`; gyorsabb/olcsóbb commit üzenetekhez választható a `claude-haiku-5-5`.
-- **DeepSeek**: DeepSeek API kulcs (platform.deepseek.com). Alapértelmezett modell: `deepseek-flash`, erősebb: `deepseek-v4-pro`, vagy bármilyen más modell id (Egyéb…).
+In **Settings → AI → AI provider**, choose **Anthropic Claude** or **DeepSeek**.
 
-A kulcs a gépen, az alkalmazás konfigurációs mappájában tárolt `settings.json`-ban van (`%APPDATA%\hu.gitstar.app\settings.json`), titkosítás nélkül.
-Nagyon nagy diff esetén (Claude-nál 600 000, DeepSeek-nél 300 000 karakter felett) csak az eleje kerül az AI-hoz; ezt a felület jelzi.
+- **Claude** — Enter an Anthropic API key from console.anthropic.com. The default model is `claude-opus-5-5`. Choose `claude-haiku-5-5` for faster, lower-cost commit messages.
+- **DeepSeek** — Enter a DeepSeek API key from platform.deepseek.com. The default model is `deepseek-flash`. Choose `deepseek-v4-pro` or enter another model ID under **Other…**.
 
-## Billentyűk
+GitStar stores the API key unencrypted in `settings.json` in the app configuration folder. On Windows, this is `%APPDATA%\hu.gitstar.app\settings.json`.
 
-| Billentyű | Művelet |
+When a diff exceeds 600,000 characters for Claude or 300,000 for DeepSeek, GitStar sends only the beginning of the diff and indicates the truncation in the interface.
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
 |---|---|
-| F5 | Frissítés |
-| F1 | Névjegy (verzió, git, AI szolgáltató, beállításfájl helye) |
-| Ctrl+O | Repository megnyitása |
-| Ctrl+1 / 2 / 3 | Változások / Történet / Összehasonlítás |
-| Ctrl+Tab | Következő repo fül |
+| F5 | Refresh |
+| F1 | About (version, Git, AI provider, and settings file location) |
+| Ctrl+O | Open a repository |
+| Ctrl+1 / 2 / 3 | Changes / History / Compare |
+| Ctrl+Tab | Switch to the next repository tab |
 | Ctrl+Enter | Commit |
-| Ctrl+` | Git konzol |
-| Alt+↑ / Alt+↓ | Előző / következő változás a diff-ben |
-| ↑ / ↓ | Commit lista navigáció |
+| Ctrl + backtick | Open the Git console |
+| Alt+↑ / Alt+↓ | Jump to the previous or next change in the diff |
+| ↑ / ↓ | Navigate the commit list |
 
-## Felépítés
+## Project structure
 
-```
+```text
 src-tauri/src/
-  git.rs        git.exe futtatása (rejtett ablak, stabil kimenet, stdin)
-  commands.rs   Tauri parancsok: status, refs, log, diff, stage/apply, commit, műveletek, AI
-  graph.rs      commit gráf sáv-kiosztás (unit tesztekkel)
-  ai.rs         Claude Messages API hívás, promptok
-  settings.rs   beállítások mentése
+  git.rs        Runs Git with a hidden window on Windows, stable output, and stdin
+  commands.rs   Tauri commands for status, refs, log, diff, staging, commits, operations, and AI
+  graph.rs      Commit graph lane allocation and unit tests
+  ai.rs         AI API calls and prompts
+  settings.rs   Settings persistence
 www/
-  index.html, css/app.css   felület, témák (CSS változók)
-  js/app.js     nézetek, oldalsáv, eszköztár, dialógusok, AI panel, konzol
-  js/diff.js    diff parser + megjelenítő, hunk/sor patch készítés, kép diff, blame
-  js/graph.js   gráf sor SVG
-  js/util.js    DOM segédek, menük, modálok, markdown, ikonkészletek
-  js/i18n.js    fordítás: t('magyar szöveg') → angol szótár
+  index.html, css/app.css   Interface and themes using CSS variables
+  js/app.js     Views, sidebar, toolbar, dialogs, AI panel, and console
+  js/diff.js    Diff parsing and rendering, hunk and line patches, image diffs, and blame
+  js/graph.js   SVG rendering for graph rows
+  js/util.js    DOM helpers, menus, modals, Markdown, and icon sets
+  js/i18n.js    Translation dictionary from Hungarian to English
 ```
 
-A frontend sima ES modul (nincs bundler); a `www` mappát a Tauri build ágyazza be.
+The frontend uses native ES modules. Tauri embeds the `www` folder during the build.

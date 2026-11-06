@@ -1,66 +1,70 @@
-GitStar – telepítési útmutató
-============================
+GitStar Installation Guide
+==========================
 
-Letöltés
+Download
 --------
-A GitHub Actions sikeres „Build installers” futásánál az Artifacts részből
-töltsd le a gépedhez tartozó ZIP-et, majd csomagold ki. Ha a telepítőket
-GitHub Release-ből töltöd le, közvetlenül a megfelelő fájlt válaszd.
+On the GitHub Actions page for a successful "Build installers" run,
+download the ZIP for your platform from Artifacts and extract it.
+If downloading from GitHub Releases, choose the installer file directly.
 
-A GitStar a gépen telepített Git programot használja. A telepítés után
-terminálban ellenőrizd a „git --version” paranccsal. Ha a GitStart már
-megnyitottad a Git telepítése előtt, zárd be és indítsd újra.
+GitStar uses the Git executable installed on your computer. Run
+"git --version" in a terminal to check that Git is available. If GitStar
+was already open when you installed Git, close and reopen it.
 
-Windows x64 és ARM64
---------------------
-1. A Beállítások > Rendszer > Névjegy alatt keresd a Rendszer típusa sort.
-2. x64 processzorhoz a GitStar-x86_64-pc-windows-msvc, ARM processzorhoz
-   a GitStar-aarch64-pc-windows-msvc csomagban lévő NSIS .exe-t válaszd.
-3. Telepítsd a Git for Windows megfelelő változatát a https://git-scm.com/
-   oldalról. A telepítőben engedélyezd a Git használatát külső programokból
-   is, hogy a GitStar megtalálja.
-4. Indítsd el a GitStar .exe telepítőjét. Ha a WebView2 futtatókörnyezet
-   hiányzik, a telepítő letölti, amihez internetkapcsolat szükséges.
-   Az aláíratlan telepítőnél SmartScreen figyelmeztetés jelenhet meg.
-   Ha ellenőrizted a fájl forrását, a „További információ” alatt keresd
-   a „Futtatás mindenképpen” lehetőséget, ha a rendszer felajánlja.
-5. A telepítés után a Start menüből indítsd el a GitStart.
+Windows x64 and ARM64
+---------------------
+1. Open Settings > System > About and check System type.
+2. For an x64 processor, choose the NSIS .exe from the
+   GitStar-x86_64-pc-windows-msvc artifact. For an ARM processor, choose
+   the .exe from GitStar-aarch64-pc-windows-msvc.
+3. Install the appropriate Git for Windows build from https://git-scm.com/.
+   Allow Git to be used by third-party software during setup so GitStar
+   can find it.
+4. Run the GitStar .exe installer. If the WebView2 Runtime is missing,
+   the installer downloads it, which requires an internet connection.
+   SmartScreen may warn about the unsigned installer. If you have
+   verified the download source, select "More info" and then "Run anyway"
+   if Windows offers that option.
+5. Open GitStar from the Start menu.
 
-macOS Apple Silicon (ARM64) és Intel (x64)
------------------------------------------
-1. Az Apple menü > A Mac névjegye ablakban ellenőrizd a chipet.
-   Apple M sorozathoz a GitStar-aarch64-apple-darwin, Intelhez a
-   GitStar-x86_64-apple-darwin csomagban lévő .dmg-t válaszd.
-2. Ha a „git --version” a fejlesztői eszközök telepítését kéri, fogadd el,
-   vagy indítsd a telepítést az „xcode-select --install” paranccsal.
-3. Nyisd meg a .dmg-t, húzd a GitStar.app fájlt az Alkalmazások mappába,
-   majd válaszd le a lemezképet.
-4. Nyisd meg a GitStart az Alkalmazások mappából. Ha a Gatekeeper
-   az ismeretlen fejlesztő miatt blokkolja, és ellenőrizted a letöltés
-   forrását, az első indítási kísérlet után a Rendszerbeállítások >
-   Adatvédelem és biztonság alatt válaszd a „Megnyitás mindenképp”
-   (Open Anyway) lehetőséget, majd erősítsd meg a megnyitást.
-   Apple útmutató: https://support.apple.com/en-ie/102445
+macOS Apple Silicon (ARM64) and Intel (x64)
+------------------------------------------
+1. Open Apple menu > About This Mac and check the chip or processor.
+   For an Apple M-series chip, choose the .dmg from
+   GitStar-aarch64-apple-darwin. For an Intel processor, choose the .dmg
+   from GitStar-x86_64-apple-darwin.
+2. If "git --version" prompts you to install the developer tools, accept
+   the prompt or start the installer with "xcode-select --install".
+3. Open the .dmg, drag GitStar.app into Applications, and eject the disk
+   image.
+4. Open GitStar from Applications. If Gatekeeper blocks the app because
+   the developer cannot be verified, check the download source. After
+   the first launch attempt, open System Settings > Privacy & Security,
+   choose "Open Anyway" if available, and confirm.
+   Apple guide: https://support.apple.com/en-ie/102445
 
 Linux x64
 ---------
-Az „uname -m” kimenete x86_64 legyen. A GitStar-x86_64-unknown-linux-gnu
-csomagban három formátum található. A parancsokat a letöltött fájl
-mappájában futtasd, és a példában szereplő fájlnevet cseréld a ténylegesre.
+Run "uname -m" and confirm that it reports x86_64. The
+GitStar-x86_64-unknown-linux-gnu artifact contains three formats.
+Run the commands from the download folder and replace the example
+filenames with the actual filenames.
 
-Debian vagy Ubuntu (.deb)
+Debian or Ubuntu (.deb)
   sudo apt update
   sudo apt install git ./GitStar_amd64.deb
-  Indítsd el a GitStart az alkalmazásmenüből.
+  Open GitStar from the application menu.
 
-Fedora vagy más DNF-alapú rendszer (.rpm)
+Fedora or another DNF-based distribution (.rpm)
   sudo dnf install git ./GitStar.x86_64.rpm
-  Indítsd el a GitStart az alkalmazásmenüből.
+  Open GitStar from the application menu.
 
 AppImage
-  Telepítsd a Git csomagot a disztribúciód csomagkezelőjével.
+  Install Git using your distribution's package manager, then run:
   chmod +x ./GitStar_amd64.AppImage
   ./GitStar_amd64.AppImage
-  FUSE-hiba esetén telepítsd a disztribúciód FUSE 2 kompatibilitási
-  csomagját (például Ubuntu 22.04-en libfuse2, 24.04-en libfuse2t64),
-  vagy próbáld így: ./GitStar_amd64.AppImage --appimage-extract-and-run
+
+  If you get a FUSE error, install your distribution's FUSE 2
+  compatibility package (libfuse2 on Ubuntu 22.04 or libfuse2t64 on
+  Ubuntu 24.04), or try:
+  ./GitStar_amd64.AppImage --appimage-extract-and-run
