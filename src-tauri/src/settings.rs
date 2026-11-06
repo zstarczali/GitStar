@@ -26,8 +26,10 @@ pub struct Settings {
     pub theme: String,
     /// "auto" | "hu" | "en"
     pub ui_language: String,
-    /// "anthropic" | "deepseek"
+    /// "anthropic" | "deepseek" | "claude-cli" (the local Claude Code CLI with its own login)
     pub ai_provider: String,
+    /// Path of the `claude` executable; empty = look it up
+    pub claude_cli_path: String,
     pub anthropic_api_key: String,
     pub ai_model: String,
     pub deepseek_api_key: String,
@@ -64,6 +66,7 @@ impl Default for Settings {
             theme: "dark".into(),
             ui_language: "auto".into(),
             ai_provider: "anthropic".into(),
+            claude_cli_path: String::new(),
             anthropic_api_key: String::new(),
             ai_model: "claude-opus-5-5".into(),
             deepseek_api_key: String::new(),
@@ -91,7 +94,11 @@ impl Default for Settings {
 impl Settings {
     /// API key of the selected AI provider.
     pub fn ai_key(&self) -> &str {
-        if self.ai_provider == "deepseek" { &self.deepseek_api_key } else { &self.anthropic_api_key }
+        match self.ai_provider.as_str() {
+            "deepseek" => &self.deepseek_api_key,
+            "claude-cli" => &self.claude_cli_path,
+            _ => &self.anthropic_api_key,
+        }
     }
 
     /// Model id of the selected AI provider.

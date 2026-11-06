@@ -46,7 +46,10 @@ class Repo {
 
 const cur = () => S.repos[S.active] || null;
 const isDeepSeek = () => S.settings?.ai_provider === 'deepseek';
-const aiKey = () => (isDeepSeek() ? S.settings?.deepseek_api_key : S.settings?.anthropic_api_key) || '';
+const isClaudeCli = () => S.settings?.ai_provider === 'claude-cli';
+// truthy when AI is usable; the Claude CLI needs no key (it uses its own login)
+const aiKey = () => (isClaudeCli() ? 'cli' : (isDeepSeek() ? S.settings?.deepseek_api_key : S.settings?.anthropic_api_key) || '');
+const aiProviderName = () => (isDeepSeek() ? 'DeepSeek' : isClaudeCli() ? 'Claude Code CLI' : 'Anthropic Claude');
 const aiModel = () => (isDeepSeek() ? S.settings?.deepseek_model : S.settings?.ai_model) || '';
 const prefs = () => ({
   mode: S.settings.diff_mode, context: S.settings.diff_context, ignoreWs: S.settings.diff_ignore_ws, wrap: S.settings.diff_wrap,
@@ -1671,7 +1674,7 @@ async function aboutDlg() {
   let info = {};
   try { info = await invoke('app_info'); } catch (e) { info = { git: String(e) }; }
   const ds = isDeepSeek();
-  const ai = aiKey() ? `${ds ? 'DeepSeek' : 'Anthropic Claude'} · ${aiModel()}` : t('nincs beállítva');
+  const ai = aiKey() ? `${aiProviderName()} · ${aiModel()}` : t('nincs beállítva');
   const rows = [
     [t('Verzió'), info.version || '?'],
     ['Git', info.git || '?'],
@@ -1693,7 +1696,7 @@ async function aboutDlg() {
       h('div.about-tag', t('Git kliens AI commit üzenetekkel és vizuális diff-fel.'))),
     h('div.about-feats', features.map(([ic, l]) => h('span.about-feat', icon(ic), l))),
     h('div.about-info', rows.map(([k, v]) => [h('span.k', k), h('span.v', { title: v }, v)])),
-    h('div.about-foot', t('Rust + Tauri 2, a git műveleteket a git.exe végzi. AI: Anthropic Claude vagy DeepSeek.')),
+    h('div.about-foot', t('Rust + Tauri 2, a git műveleteket a git.exe végzi. AI: Anthropic Claude (API vagy Claude Code CLI) vagy DeepSeek.')),
     h('div.about-free', t('A GitStar ingyenes (freeware). Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést. Köszönöm!')),
     h('div.about-copy', '© 2026 Zsolt Tarczali'));
   const res = await modal({ title: t('Névjegy'), body, buttons: [
@@ -1734,25 +1737,33 @@ async function settingsDlg() {
   const dsModelSel = sel([...dsModels.map((m) => [m, m]), ['custom', t('Egyéb…')]], dsModels.includes(dsModel) ? dsModel : 'custom');
   const dsCustom = h('input.inp', { value: dsModels.includes(dsModel) ? '' : dsModel, placeholder: 'model id', style: { display: dsModels.includes(dsModel) ? 'none' : '' } });
   dsModelSel.addEventListener('change', () => (dsCustom.style.display = dsModelSel.value === 'custom' ? '' : 'none'));
-  const providerSel = sel([['anthropic', 'Anthropic Claude'], ['deepseek', 'DeepSeek']], s.ai_provider || 'anthropic');
-  const claudeBox = h('div.settings-sub.full',
-    h('label.field.full', h('span', t('Anthropic API kulcs')), key, h('span.note', t('A kulcs a GitStar beállításfájljában tárolódik ezen a gépen (settings.json az alkalmazás konfigurációs mappájában). Kulcs: console.anthropic.com'))),
+  const providerSel = sel([['anthropic', 'Anthropic Claude (API key)'], ['claude-cli', t('Claude Code CLI (saját bejelentkezés)')], ['deepseek', 'DeepSeek']], s.ai_provider || 'anthropic');
+  const cliPath = h('input.inp', { value: s.claude_cli_path || '', placeholder: t('üres = megkeresi (PATH, ~/.local/bin, Homebrew, npm)'), spellcheck: 'false' });
+  const cliField = h('label.field.full', h('span', t('Claude CLI útvonala')), cliPath,
+    h('span.note', t('A telepített Claude Code CLI-t (claude) futtatja a saját bejelentkezéseddel (Pro/Max előfizetés vagy a CLI-ben beállított kulcs), így itt nem kell API kulcs. Bejelentkezés: futtasd egyszer a „claude” parancsot egy terminálban.')));
+  const keyField = h('label.field.full', h('span', t('Anthropic API kulcs')), key, h('span.note', t('A kulcs a GitStar beállításfájljában tárolódik ezen a gépen (settings.json az alkalmazás konfigurációs mappájában). Kulcs: console.anthropic.com')));
+  const claudeBox = h('div.settings-sub.full', keyField, cliField,
     h('label.field', h('span', t('Modell')), modelSel, customModel, h('span.note', t('Alapértelmezés: claude-opus-5-5. Gyorsabb/olcsóbb: claude-haiku-5-5.'))));
   const dsBox = h('div.settings-sub.full',
     h('label.field.full', h('span', t('DeepSeek API kulcs')), dsKey, h('span.note', t('A kulcs a GitStar beállításfájljában tárolódik ezen a gépen. Kulcs: platform.deepseek.com'))),
     h('label.field', h('span', t('Modell')), dsModelSel, dsCustom, h('span.note', t('Alapértelmezés: deepseek-flash. Erősebb: deepseek-v4-pro.'))));
-  const syncProvider = () => { const ds = providerSel.value === 'deepseek'; claudeBox.style.display = ds ? 'none' : ''; dsBox.style.display = ds ? '' : 'none'; };
+  const syncProvider = () => {
+    const ds = providerSel.value === 'deepseek', cli = providerSel.value === 'claude-cli';
+    claudeBox.style.display = ds ? 'none' : ''; dsBox.style.display = ds ? '' : 'none';
+    keyField.style.display = cli ? 'none' : ''; cliField.style.display = cli ? '' : 'none';
+  };
   providerSel.addEventListener('change', syncProvider);
   syncProvider();
   // Test with the values typed in the dialog (they need not be saved yet).
   const aiTestOut = h('span.note', '');
   const aiTestBtn = h('button.btn', { on: { click: async () => {
     const ds = providerSel.value === 'deepseek';
-    const apiKey = (ds ? dsKey.value : key.value).trim();
+    const cli = providerSel.value === 'claude-cli';
+    const apiKey = (ds ? dsKey.value : cli ? cliPath.value : key.value).trim();
     const model = ds
       ? (dsModelSel.value === 'custom' ? dsCustom.value.trim() || 'deepseek-flash' : dsModelSel.value)
       : (modelSel.value === 'custom' ? customModel.value.trim() || 'claude-opus-5-5' : modelSel.value);
-    if (!apiKey) { aiTestOut.className = 'note err'; aiTestOut.textContent = '✗ ' + t('Nincs megadva API kulcs.'); return; }
+    if (!apiKey && !cli) { aiTestOut.className = 'note err'; aiTestOut.textContent = '✗ ' + t('Nincs megadva API kulcs.'); return; }
     aiTestBtn.disabled = true;
     aiTestOut.className = 'note';
     aiTestOut.textContent = t('Tesztelés…');
@@ -1815,6 +1826,7 @@ async function settingsDlg() {
     font_size: Math.max(10, Math.min(20, +els.font_size.value || 13)),
     ai_provider: providerSel.value,
     anthropic_api_key: key.value.trim(),
+    claude_cli_path: cliPath.value.trim(),
     deepseek_api_key: dsKey.value.trim(),
     deepseek_model: dsModelSel.value === 'custom' ? dsCustom.value.trim() || 'deepseek-flash' : dsModelSel.value,
     ai_model: modelSel.value === 'custom' ? customModel.value.trim() || 'claude-opus-5-5' : modelSel.value,

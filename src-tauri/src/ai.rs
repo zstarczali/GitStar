@@ -17,8 +17,9 @@ const DEEPSEEK_URL: &str = "https://api.deepseek.com/chat/completions";
 pub const DEEPSEEK_MAX_DIFF_CHARS: usize = 300_000;
 
 pub struct AiRequest<'a> {
-    /// "anthropic" | "deepseek"
+    /// "anthropic" | "deepseek" | "claude-cli"
     pub provider: &'a str,
+    /// API key; for "claude-cli" the CLI path from Settings (empty = find it)
     pub api_key: &'a str,
     pub model: &'a str,
     pub system: String,
@@ -40,6 +41,13 @@ fn supports_fallback(model: &str) -> bool {
 pub async fn complete(req: AiRequest<'_>) -> Result<String, String> {
     if req.provider == "deepseek" {
         return complete_deepseek(req).await;
+    }
+    if req.provider == "claude-cli" {
+        let (path, model, system, user) = (req.api_key.to_string(), req.model.to_string(), req.system, req.user);
+        let effort = supports_effort(&model).then(|| req.effort.to_string());
+        return tauri::async_runtime::spawn_blocking(move || crate::claude_cli::complete(&path, &model, effort.as_deref(), &system, &user))
+            .await
+            .map_err(|e| e.to_string())?;
     }
     if req.api_key.trim().is_empty() {
         return Err(tr("Nincs megadva Anthropic API kulcs (Beállítások → AI).", "No Anthropic API key is set (Settings → AI)."));
