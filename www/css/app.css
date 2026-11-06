@@ -215,6 +215,33 @@ textarea.inp { resize: vertical; user-select: text; }
 .seg button.on { background: var(--bg-sel); color: var(--text); }
 label.chk { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-dim); }
 select.inp { padding: 4px 6px; }
+/* Dropdown lists. Where the engine allows it (WebView2 / Chromium 135+) the list is drawn by us in the
+   theme's colours; elsewhere the native list gets at least an opaque, readable background. */
+:root { --menu-bg: var(--bg-2); --menu-sel: color-mix(in srgb, var(--accent) 28%, transparent); }
+[data-theme="modern"] { --menu-bg: #ffffff; }
+[data-theme="modern-dark"] { --menu-bg: #17172b; }
+@supports (appearance: base-select) {
+  select, select::picker(select) { appearance: base-select; }
+  select { display: flex; align-items: center; gap: 6px; cursor: default; }
+  select::picker-icon { color: var(--text-dim); transition: rotate .15s; }
+  select:open::picker-icon { rotate: 180deg; }
+  select::picker(select) {
+    background: var(--menu-bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: var(--shadow); padding: 4px; margin-block: 3px; max-height: min(360px, 60vh);
+  }
+  select option { padding: 5px 9px; border-radius: 4px; background: transparent; color: inherit; outline: none; }
+  select option::checkmark { display: none; }
+  select option:hover, select option:focus-visible { background: var(--bg-3); }
+  select option:checked { background: var(--menu-sel); }
+  select option:checked:hover, select option:checked:focus-visible { background: color-mix(in srgb, var(--accent) 40%, transparent); }
+  [data-theme="modern"] select::picker(select), [data-theme="modern-dark"] select::picker(select) { border-radius: 10px; }
+  [data-theme="retro"] select::picker(select), [data-theme="retro"] select option { border-radius: 0; }
+  [data-theme="retro"] select::picker(select) { border-width: 2px; }
+  [data-theme="retro"] select option:checked, [data-theme="retro"] select option:checked:hover { background: #ffe066; color: #1c1548; }
+}
+@supports not (appearance: base-select) {
+  select option, select optgroup { background-color: var(--menu-bg); color: var(--text); }
+}
 
 /* ── panels ── */
 .pane-h { display: flex; align-items: center; gap: 8px; padding: 0 8px; height: 32px; flex: none; border-bottom: 1px solid var(--border); background: var(--bg-2); font-weight: 600; font-size: 12px; }
