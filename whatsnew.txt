@@ -1,0 +1,54 @@
+GitStar - What's new
+====================
+
+0.3.1
+-----
+- License: GitStar is freeware. Free to use, but copying and
+  redistributing it is not allowed (see LICENSE). The Windows installer
+  shows the license.
+- Donate button (pink heart) in the toolbar and the About dialog: opens
+  the donation page in the browser.
+- Endless progress bar under the toolbar while Fetch, Pull, Push, commit,
+  merge, clone and other git operations run.
+- Native controls (number spinners, scrollbars) follow the dark themes.
+- README with the GitStar logo, and this what's new file.
+
+0.3.0
+-----
+- Self-update: GitStar looks for a new version at startup and from
+  About > Check for updates, downloads the installer with a progress bar,
+  installs it and restarts. Download folder and startup check in Settings.
+- Push is a split button: the main part pushes right away, the small arrow
+  (or right-click) opens the Push dialog.
+- PR button: opens the new pull request page of GitHub, GitLab, Bitbucket,
+  Azure DevOps or Gitea/Codeberg, pushing the branch first if needed.
+- Branch fields are combo boxes that offer the existing branches and tags
+  (Push, PR, New branch, Merge, New tag, Compare).
+- Modern and Modern dark (frosted glass) themes. The toolbar theme button
+  switches between plain dark and light; the other themes are in Settings.
+
+0.2.0
+-----
+- Splash screen at startup.
+- The main window remembers its size, position and maximized state.
+- Retro (8-bit) theme.
+- Installers for Windows x64/ARM64, macOS Apple Silicon/Intel and
+  Linux x64 (.deb, .rpm, .AppImage), built by GitHub Actions.
+- AI panel shows a summary only.
+- About dialog with copyright.
+- Resizable commit message box, compact notifications after operations.
+- Push button badge with the number of unpushed commits; Pull remembers
+  its mode instead of asking every time.
+- Git name and email in Settings; amend with author reset.
+- AI neon theme, DeepSeek as a second AI provider with a Test button,
+  English and Hungarian interface.
+
+0.1.0
+-----
+- First version: a Fork-style Git client built with Tauri 2 and Rust,
+  running git.exe for every operation.
+- Local changes with stage/unstage/discard by file, hunk or line.
+- Commit graph, history, search, blame, file history.
+- Side-by-side and unified diffs with word-level highlighting, image diff.
+- Branches, remotes, tags, stashes, merge, rebase, cherry-pick, reset.
+- AI commit messages and AI diff analysis (Anthropic Claude).

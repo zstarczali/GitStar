@@ -125,6 +125,11 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .update-status { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); font-weight: 600; cursor: pointer; }
 .update-status svg.i { width: 13px; height: 13px; }
 .update-status:hover { text-decoration: underline; }
+/* donation button: pink heart like the Visual Assembler's */
+.tb-donate { display: contents; }
+.tb-donate .tb svg.i, [data-theme] .tb-donate .tb svg.i { color: #e05577; }
+.tb-donate .tb:hover:not(:disabled) svg.i { fill: rgba(224, 85, 119, 0.25); }
+.about-free { text-align: center; font-size: 12px; color: var(--text-dim); margin-top: 8px; }
 .tb-sep { width: 1px; height: 30px; background: var(--border); margin: 0 6px; }
 .tb-spacer { flex: 1; }
 .repo-title { display: flex; flex-direction: column; padding: 0 12px; min-width: 0; }

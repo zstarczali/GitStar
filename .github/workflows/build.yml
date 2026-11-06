@@ -96,4 +96,7 @@ jobs:
         with:
           name: GitStar-installation-guide
           if-no-files-found: error
-          path: readme.txt
+          path: |
+            readme.txt
+            whatsnew.txt
+            LICENSE
