@@ -254,6 +254,7 @@ function renderToolbar() {
     tb(t('Konzol'), 'console', () => toggleConsole(), { disabled: no, title: t('Git konzol (Ctrl+`)') }),
     h('div.tb-spacer'),
     tb(t(THEME_UI[nextTheme][0]), THEME_UI[nextTheme][1], toggleTheme, { title: t('Váltás sötét és világos téma között (a többi téma a Beállításokban)') }),
+    h('span.tb-donate', tb(t('Adomány'), 'heart', () => openDonate(), { title: t('A GitStar ingyenes. Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést.') })),
     tb(t('Beállítások'), 'settings', () => settingsDlg()),
     tb(t('Névjegy'), 'info', () => aboutDlg(), { title: t('A GitStar névjegye (F1)') }),
   );
@@ -1660,6 +1661,12 @@ async function initDlg() {
 }
 
 // ── about ──
+// Donation: the PayPal page of the product site (same as the Visual Assembler's), in the UI language.
+const DONATE_URL = 'https://www.c64va.pro/register/donate.php';
+function openDonate() {
+  invoke('open_url', { url: `${DONATE_URL}?lang=${getLang() === 'hu' ? 'hu' : 'en'}` }).catch((e) => toast(String(e), 'err'));
+}
+
 async function aboutDlg() {
   let info = {};
   try { info = await invoke('app_info'); } catch (e) { info = { git: String(e) }; }
@@ -1687,14 +1694,17 @@ async function aboutDlg() {
     h('div.about-feats', features.map(([ic, l]) => h('span.about-feat', icon(ic), l))),
     h('div.about-info', rows.map(([k, v]) => [h('span.k', k), h('span.v', { title: v }, v)])),
     h('div.about-foot', t('Rust + Tauri 2, a git műveleteket a git.exe végzi. AI: Anthropic Claude vagy DeepSeek.')),
+    h('div.about-free', t('A GitStar ingyenes (freeware). Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést. Köszönöm!')),
     h('div.about-copy', '© 2026 Zsolt Tarczali'));
   const res = await modal({ title: t('Névjegy'), body, buttons: [
+    { label: t('Adomány'), value: 'donate' },
     { label: t('Frissítések keresése'), value: 'update' },
     { label: t('Beállítások mappa'), value: 'folder' },
     { label: t('Másolás'), value: 'copy' },
     { label: t('Bezárás'), value: false, primary: true },
   ] });
   if (res === 'update') checkForAppUpdate();
+  if (res === 'donate') openDonate();
   if (res === 'copy') { await navigator.clipboard.writeText(text).catch(() => {}); toast(t('Vágólapra másolva')); }
   if (res === 'folder' && info.settings_path) invoke('reveal_in_explorer', { path: info.settings_path }).catch((e) => toast(e, 'err'));
 }

@@ -102,3 +102,15 @@ www/
 ```
 
 The frontend uses native ES modules. Tauri embeds the `www` folder during the build.
+
+## What's new
+
+See [whatsnew.txt](whatsnew.txt) for the changes in each version.
+
+## License
+
+GitStar is freeware: free to download and use, including at work, but it may not be copied, redistributed, published, sold, or modified without the author's written permission. See [LICENSE](LICENSE).
+
+If GitStar is useful to you, you can support its development with a small [donation](https://www.c64va.pro/register/donate.php) (also from the heart button in the toolbar).
+
+© 2026 Zsolt Tarczali

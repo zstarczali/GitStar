@@ -94,6 +94,7 @@ const P = {
   trash: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
+  heart: '<path d="M12 20.5S3 15.2 3 9.2a4.6 4.6 0 0 1 9-1.5 4.6 4.6 0 0 1 9 1.5c0 6-9 11.3-9 11.3z"/>',
   pr: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="19" r="2"/><path d="M6 7v10"/><path d="M18 17V9a3 3 0 0 0-3-3h-4"/><path d="m13 3-3 3 3 3"/>',
 };
 
