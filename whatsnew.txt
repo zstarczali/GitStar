@@ -1,6 +1,12 @@
 GitStar - What's new
 ====================
 
+0.3.2
+-----
+- Dropdown lists are drawn in the colours of the current theme in every
+  theme: readable items and a clear highlight (they were grey on grey in
+  Modern dark).
+
 0.3.1
 -----
 - License: GitStar is freeware. Free to use, but copying and
