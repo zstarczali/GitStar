@@ -1071,15 +1071,13 @@ function aiPanel(title, run) {
     settingsDlg();
     return;
   }
+  // Summary only: the panel has no follow-up question box.
   const body = h('div.ai-body');
-  const q = h('input.inp', { placeholder: t('Kérdezz a diff-ről (pl. "Van benne biztonsági hiba?")…') });
-  const ask = async (question) => {
-    if (question) body.append(h('div.ai-q', '❯ ' + question));
+  const summarize = async () => {
     const wait = h('div.ai-thinking', icon('sparkle', 'spin'), t('Az AI elemzi a változásokat…'));
     body.append(wait);
-    body.scrollTop = body.scrollHeight;
     try {
-      const res = await run(question || null);
+      const res = await run(null);
       wait.remove();
       const out = h('div', { html: markdown(res.text) });
       body.append(out);
@@ -1093,11 +1091,9 @@ function aiPanel(title, run) {
     h('div.pane-h', h('span.spark', icon('sparkle')), title, h('span.grow'),
       h('button.icon-btn', { title: t('Szöveg másolása'), on: { click: () => copy(body.innerText) } }, icon('copy')),
       h('button.icon-btn', { title: t('Bezárás'), on: { click: () => panel.remove() } }, icon('close'))),
-    body,
-    h('div.ai-ask', q, h('button.btn.ai', { on: { click: () => { const v = q.value.trim(); if (v) { q.value = ''; ask(v); } } } }, t('Kérdés'))));
-  q.addEventListener('keydown', (e) => { if (e.key === 'Enter' && q.value.trim()) { const v = q.value.trim(); q.value = ''; ask(v); } });
+    body);
   document.body.append(panel);
-  ask(null);
+  summarize();
 }
 
 // ───────────────────────── console ─────────────────────────
@@ -1583,7 +1579,8 @@ async function aboutDlg() {
       h('div.about-tag', t('Git kliens AI commit üzenetekkel és vizuális diff-fel.'))),
     h('div.about-feats', features.map(([ic, l]) => h('span.about-feat', icon(ic), l))),
     h('div.about-info', rows.map(([k, v]) => [h('span.k', k), h('span.v', { title: v }, v)])),
-    h('div.about-foot', t('Rust + Tauri 2, a git műveleteket a git.exe végzi. AI: Anthropic Claude vagy DeepSeek.')));
+    h('div.about-foot', t('Rust + Tauri 2, a git műveleteket a git.exe végzi. AI: Anthropic Claude vagy DeepSeek.')),
+    h('div.about-copy', '© 2026 Zsolt Tarczali'));
   const res = await modal({ title: t('Névjegy'), body, buttons: [
     { label: t('Beállítások mappa'), value: 'folder' },
     { label: t('Másolás'), value: 'copy' },

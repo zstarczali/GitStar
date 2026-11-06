@@ -12,7 +12,7 @@ Minden git műveletet a `git.exe` hajt végre (hookok, credential helper, LFS, c
 - **Történet**: commit gráf (sávok, merge-ek, színek), virtualizált lista, ref címkék, keresés üzenet / hash / szerző / tartalom (`-S`) / útvonal szerint, fájl előzmények, blame
 - **Fejlett vizuális diff**: egymás melletti és egyesített nézet, **szó szintű kiemelés**, minimap a változásokkal, ugrás változásról változásra (Alt+↑/↓), kontextus 3/10/25 sor vagy teljes fájl, whitespace ignorálás, sortörés, **kép diff** (egymás mellett / átúsztatás), konfliktus nézet jelölőkkel
 - **Összehasonlítás**: bármely két ág / tag / commit vagy a working tree, merge-base (A...B) mód, csak az egyik oldalon lévő commitok listája
-- **AI diff elemzés és összehasonlítás**: commit magyarázat, két ág/revízió AI-összehasonlítása (mit hoz be, kockázatok, merge problémák), fájl diff elemzése, utólagos kérdések a diff-ről
+- **AI diff elemzés és összehasonlítás**: commit magyarázat, két ág/revízió AI-összehasonlítása (mit hoz be, kockázatok, merge problémák), fájl diff elemzése (összefoglaló, kérdezés nélkül)
 - **Ágak / remote-ok / tagek / stash-ek**: checkout (stash-elési opcióval), új ág, átnevezés, törlés (remote-on is), upstream, merge (ff / no-ff / ff-only / squash), rebase, cherry-pick, revert, reset (soft/mixed/hard), fetch / pull (merge/rebase/ff-only, autostash) / push (upstream, force-with-lease, tagek), tag létrehozás/push/törlés, stash push/apply/pop/drop/branch, remote hozzáadás/URL/törlés
 - **Folyamatban lévő merge/rebase/cherry-pick/revert** sáv: folytatás / kihagyás / megszakítás, konfliktus feloldás ours / theirs / kézi
 - **Git konzol** (Ctrl+`): bármilyen git parancs, előzményekkel; minden művelet kimenete itt is látszik
