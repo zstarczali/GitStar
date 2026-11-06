@@ -189,8 +189,10 @@ function renderTabs() {
   );
 }
 
-function tb(label, ic, action, { disabled, title, badge, spin } = {}) {
-  return h('button.tb', { disabled: disabled || null, title: title || label, on: { click: action } },
+function tb(label, ic, action, { disabled, title, badge, spin, menu } = {}) {
+  const on = { click: action };
+  if (menu) on.contextmenu = (e) => { e.preventDefault(); menu(e); };
+  return h('button.tb', { disabled: disabled || null, title: title || label, on },
     icon(ic, spin ? 'spin' : ''), h('span', label), badge ? h('span.badge', badge) : null);
 }
 
@@ -207,8 +209,10 @@ function renderToolbar() {
         st && st.upstream ? h('span', { title: st.upstream }, `${st.ahead ? '↑' + st.ahead : ''} ${st.behind ? '↓' + st.behind : ''}`) : null)) : h('div.repo-title', h('span.rn', 'GitStar')),
     h('div.tb-sep'),
     tb('Fetch', 'fetch', () => doFetch(), { disabled: no }),
-    tb('Pull', 'pull', () => pullDlg(), { disabled: no, badge: st?.behind || null }),
-    tb('Push', 'push', () => pushDlg(), { disabled: no, badge: st?.ahead || null }),
+    tb('Pull', 'pull', (e) => (e.shiftKey ? pullDlg() : doPull()), { disabled: no, badge: st?.behind || null, menu: () => pullDlg(),
+      title: (st?.behind ? t('{0} új commit a remote-on', st.behind) + '\n' : '') + t('Pull ({0}) · Shift+kattintás vagy jobb klikk: beállítások', pullModeName()) }),
+    tb('Push', 'push', () => pushDlg(), { disabled: no, badge: st?.unpushed || st?.ahead || null,
+      title: st?.unpushed ? t('{0} commit vár push-ra', st.unpushed) : 'Push' }),
     h('div.tb-sep'),
     tb(t('Ág'), 'branch', () => newBranchDlg(), { disabled: no, title: t('Új ág') }),
     tb('Merge', 'merge', () => mergeDlg(), { disabled: no }),
@@ -1274,19 +1278,40 @@ async function pickRemote() {
   return v?.remote || null;
 }
 
+const pullModeName = () => ({ merge: 'merge', rebase: 'rebase', ff: 'fast-forward', ask: t('kérdez') }[S.settings?.pull_mode || 'merge'] || 'merge');
+
+/** Pull button: runs with the remembered mode; the dialog only when set to "ask". */
+async function doPull() {
+  const mode = S.settings.pull_mode || 'merge';
+  if (mode === 'ask') return pullDlg();
+  const r = cur();
+  if (!r.status.upstream && !(r.refs?.remotes || []).length) { toast(t('Nincs beállított remote.'), 'err'); return; }
+  await runPull(mode, S.settings.pull_autostash !== false);
+}
+
+async function runPull(mode, autostash) {
+  const args = ['pull', '--progress'];
+  if (mode === 'rebase') args.push('--rebase'); else if (mode === 'ff') args.push('--ff-only'); else args.push('--no-rebase');
+  if (autostash) args.push('--autostash');
+  await op('Pull', args);
+}
+
 async function pullDlg() {
   const r = cur();
   const st = r.status;
   if (!st.upstream && !(r.refs?.remotes || []).length) { toast(t('Nincs beállított remote.'), 'err'); return; }
+  const saved = S.settings.pull_mode && S.settings.pull_mode !== 'ask' ? S.settings.pull_mode : 'merge';
   const v = await formDlg('Pull', [
-    { name: 'mode', label: t('Mód'), type: 'select', value: 'merge', options: [{ value: 'merge', label: t('Merge (alapértelmezett)') }, { value: 'rebase', label: 'Rebase' }, { value: 'ff', label: t('Csak fast-forward') }] },
-    { name: 'autostash', label: t('Lokális változások automatikus stash-elése (--autostash)'), type: 'checkbox', value: true },
+    { name: 'mode', label: t('Mód'), type: 'select', value: saved, options: [{ value: 'merge', label: t('Merge (alapértelmezett)') }, { value: 'rebase', label: 'Rebase' }, { value: 'ff', label: t('Csak fast-forward') }] },
+    { name: 'autostash', label: t('Lokális változások automatikus stash-elése (--autostash)'), type: 'checkbox', value: S.settings.pull_autostash !== false },
+    { name: 'remember', label: t('Emlékezzen erre, a Pull gomb ne kérdezzen többet'), type: 'checkbox', value: true },
   ], 'Pull', st.upstream ? `${st.branch} ← ${st.upstream}` : t('A(z) "{0}" ágnak nincs upstream-je.', st.branch));
   if (!v) return;
-  const args = ['pull', '--progress'];
-  if (v.mode === 'rebase') args.push('--rebase'); else if (v.mode === 'ff') args.push('--ff-only'); else args.push('--no-rebase');
-  if (v.autostash) args.push('--autostash');
-  await op('Pull', args);
+  if (v.remember) {
+    Object.assign(S.settings, { pull_mode: v.mode, pull_autostash: !!v.autostash });
+    saveSettings();
+  }
+  await runPull(v.mode, v.autostash);
 }
 
 async function pushDlg(branch) {
@@ -1615,6 +1640,8 @@ async function settingsDlg() {
     h('label.field', h('span', t('Név (user.name)')), gitName),
     h('label.field', h('span', t('Email (user.email)')), gitEmail),
     h('div.note.full', t('A név és az email a globális git beállításba kerül (git config --global), minden repóra érvényes, ahol nincs saját beállítás.')),
+    fld('pull_mode', t('Pull gomb módja'), sel([['merge', 'Merge'], ['rebase', 'Rebase'], ['ff', t('Csak fast-forward')], ['ask', t('Mindig kérdezzen')]], s.pull_mode || 'merge'),
+      t('Shift+kattintás vagy jobb klikk a Pull gombon mindig megnyitja a párbeszédablakot.')),
     fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
     h('div'),
     h('div.settings-sec', t('Megjelenés')),
@@ -1644,6 +1671,7 @@ async function settingsDlg() {
     ai_model: modelSel.value === 'custom' ? customModel.value.trim() || 'claude-opus-5-5' : modelSel.value,
     ai_language: els.ai_language.value,
     commit_style: els.commit_style.value,
+    pull_mode: els.pull_mode.value,
   });
   await saveSettings();
   if (gitName.value.trim() !== ident.global_name || gitEmail.value.trim() !== ident.global_email) {

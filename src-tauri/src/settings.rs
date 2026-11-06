@@ -39,6 +39,9 @@ pub struct Settings {
     pub recent_repos: Vec<String>,
     pub open_repos: Vec<String>,
     pub active_repo: String,
+    /// Pull button: "merge" | "rebase" | "ff" | "ask" (show the dialog every time)
+    pub pull_mode: String,
+    pub pull_autostash: bool,
     /// "split" | "unified"
     pub diff_mode: String,
     pub diff_context: u32,
@@ -64,6 +67,8 @@ impl Default for Settings {
             recent_repos: vec![],
             open_repos: vec![],
             active_repo: String::new(),
+            pull_mode: "merge".into(),
+            pull_autostash: true,
             diff_mode: "split".into(),
             diff_context: 3,
             diff_ignore_ws: false,

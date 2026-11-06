@@ -133,6 +133,8 @@ pub struct Status {
     pub upstream: String,
     pub ahead: i64,
     pub behind: i64,
+    /// Commits a push would send (ahead of upstream, or not on any remote).
+    pub unpushed: i64,
     pub staged: Vec<FileChange>,
     pub unstaged: Vec<FileChange>,
     pub conflicted: Vec<FileChange>,
@@ -226,6 +228,23 @@ fn read_status(git: &Git, repo: &str) -> Result<Status, String> {
         }
         .to_string();
     }
+    // Commits waiting for push: vs. the upstream, or - for a branch that was
+    // never pushed - the commits not on any remote branch.
+    st.unpushed = if !st.upstream.is_empty() {
+        st.ahead
+    } else if !st.detached && !st.head.is_empty() && st.head != "(initial)" {
+        let has_remote = git.run(repo, &["remote"]).map(|s| !s.trim().is_empty()).unwrap_or(false);
+        if has_remote {
+            git.run(repo, &["rev-list", "--count", "HEAD", "--not", "--remotes"])
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    } else {
+        0
+    };
     Ok(st)
 }
 
