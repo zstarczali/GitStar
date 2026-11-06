@@ -100,10 +100,17 @@ function toggleTheme() {
 
 // ───────────────────────── git helpers ─────────────────────────
 
+let busyTimer = 0;
 function setBusy(on, label = '') {
   S.busy += on ? 1 : -1;
   if (on) S.busyLabel = label;
   renderStatusbar();
+  // endless progress bar under the toolbar while a git operation runs; shown after a
+  // short delay so quick operations don't flash it
+  const bar = document.getElementById('busybar');
+  clearTimeout(busyTimer);
+  if (S.busy > 0) busyTimer = setTimeout(() => bar.classList.add('on'), 150);
+  else bar.classList.remove('on');
 }
 
 /** Runs a git command with a busy indicator; refreshes after. */
