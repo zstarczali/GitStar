@@ -6,8 +6,13 @@
 
 GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style interface. It runs Git operations through the installed Git executable, so hooks, credential helpers, Git LFS, and Git configuration work as they do on the command line.
 
+Current version **1.0.1**. The main-window Donate button appears after 10 minutes of foreground use. Time spent with the window unfocused or hidden pauses the timer, which resets each time GitStar starts. Donations are also available from the About dialog.
+
+See [What's new](whatsnew.txt) for the release history.
+
 ## Features
 
+- **Repository tab indicators** — Tabs show the number of files with uncommitted changes, including staged, unstaged, and untracked files. Conflicts highlight the badge in red. Hover over the badge for a breakdown. All open repositories are checked at startup and every five seconds while the app is in focus, including tabs that have not been selected.
 - **Repositories** — Open, clone, and initialize repositories, work across tabs, and reopen recent repositories.
 - **Local changes** — View unstaged, staged, and conflicting files. Stage, unstage, or discard changes by file, **hunk, or line**. Click a line number to select it or Shift-click to select a range. Add files to `.gitignore`.
 - **Commits** — Amend commits, use Ctrl+Enter to commit, check the summary against a 72-character limit, and start with a prefilled merge message.

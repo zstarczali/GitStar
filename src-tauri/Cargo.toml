@@ -1,6 +1,6 @@
 [package]
 name = "gitstar"
-version = "1.0.0"
+version = "1.0.1"
 description = "GitStar - git client with AI commit messages and visual diff"
 edition = "2021"
 
