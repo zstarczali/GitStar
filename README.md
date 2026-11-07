@@ -56,6 +56,14 @@ gh workflow run build.yml --ref main
 
 Download the installers from the workflow run's **Artifacts** section, then upload them with their original names to the update folder (see **Self-update**).
 
+On macOS the app is not signed by Apple, so Gatekeeper may say that GitStar "is damaged and can't be opened". After copying the app to Applications, remove the quarantine flag in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/GitStar.app
+# if it still does not open:
+xattr -cr /Applications/GitStar.app
+```
+
 The [installation guide](readme.txt) covers every target. It is uploaded as the `GitStar-installation-guide` artifact.
 
 ## AI setup
