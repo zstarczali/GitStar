@@ -1,6 +1,17 @@
 GitStar - What's new
 ====================
 
+1.0.1
+-----
+- Repository tabs show a badge with the number of files with uncommitted
+  changes. Conflicts turn the badge red. Hover for staged, unstaged, and
+  conflict counts. The active repository is checked every five seconds
+  while the app is in focus.
+- The main-window Donate button appears after 10 minutes of foreground
+  use. The timer pauses while the window is unfocused or hidden and
+  resets each time GitStar starts.
+- The donation option in the About dialog remains available at any time.
+
 1.0.0
 -----
 - SSH keys: Settings → SSH. Choose the private key git uses for SSH

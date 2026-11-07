@@ -1,6 +1,15 @@
 GitStar Installation Guide
 ==========================
 
+Version 1.0.1
+-------------
+The main-window Donate button appears after 10 minutes of foreground
+use. The timer pauses while the window is unfocused or hidden and
+resets each time GitStar starts. You can also donate from the About
+dialog at any time.
+
+See whatsnew.txt for the release history.
+
 Download
 --------
 On the GitHub Actions page for a successful "Build installers" run,

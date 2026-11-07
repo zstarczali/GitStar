@@ -17,6 +17,7 @@ const S = {
   active: -1,
   busy: 0,
   busyLabel: '',
+  donationVisible: false,
 };
 
 class Repo {
@@ -190,6 +191,7 @@ async function refreshStatus(repo = cur()) {
   if (!repo) return;
   try {
     repo.status = await invoke('status', { repo: repo.path });
+    renderTabs();
   } catch (e) {
     repo.status = null;
     toast(e, 'err');
@@ -241,6 +243,12 @@ function renderTabs() {
         ]),
       },
     }, icon('folder'), h('span.name', r.name),
+    r.status && (r.status.staged.length || r.status.unstaged.length || r.status.conflicted.length)
+      ? h('span.tab-changes' + (r.status.conflicted.length ? '.conflict' : ''), {
+        title: t('{0} staged · {1} változott', r.status.staged.length, r.status.unstaged.length)
+          + (r.status.conflicted.length ? t(' · {0} konfliktus', r.status.conflicted.length) : ''),
+      }, String(new Set([...r.status.staged, ...r.status.unstaged, ...r.status.conflicted].map((file) => file.path)).size))
+      : null,
     h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); askCloseRepo(i); } } }, icon('close')))),
     h('button.tab-add', { title: t('Repository megnyitása (Ctrl+O)'), on: { click: () => { S.active = -1; renderAll(); } } }, icon('plus')),
   );
@@ -288,7 +296,7 @@ function renderToolbar() {
     tb(t('Konzol'), 'console', () => toggleConsole(), { disabled: no, title: t('Git konzol (Ctrl+`)') }),
     h('div.tb-spacer'),
     tb(t(THEME_UI[nextTheme][0]), THEME_UI[nextTheme][1], toggleTheme, { title: t('Váltás sötét és világos téma között (a többi téma a Beállításokban)') }),
-    h('span.tb-donate', tb(t('Adomány'), 'heart', () => openDonate(), { title: t('A GitStar ingyenes. Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést.') })),
+    ...(S.donationVisible ? [h('span.tb-donate', tb(t('Adomány'), 'heart', () => openDonate(), { title: t('A GitStar ingyenes. Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést.') }))] : []),
     tb(t('Beállítások'), 'settings', () => settingsDlg()),
     tb(t('Névjegy'), 'info', () => aboutDlg(), { title: t('A GitStar névjegye (F1)') }),
   );
@@ -1648,6 +1656,7 @@ async function openRepo(path, { activate = true, quiet = false } = {}) {
   if (activate) S.active = S.repos.length - 1;
   if (!S.restoring) persistRepos();
   if (activate) { renderAll(); await refreshAll(repo); }
+  else await refreshStatus(repo);
 }
 
 async function switchRepo(i) {
@@ -1708,6 +1717,31 @@ async function initDlg() {
 // ── about ──
 // Donation: the PayPal page of the product site (same as the Visual Assembler's), in the UI language.
 const DONATE_URL = 'https://www.c64va.pro/register/donate.php';
+function startDonationTimer() {
+  let remaining = 10 * 60 * 1000;
+  let started = null;
+  let timer;
+  const update = () => {
+    clearTimeout(timer);
+    if (started !== null) remaining -= performance.now() - started;
+    started = null;
+    if (remaining <= 0) {
+      S.donationVisible = true;
+      window.removeEventListener('focus', update);
+      window.removeEventListener('blur', update);
+      document.removeEventListener('visibilitychange', update);
+      renderToolbar();
+    } else if (!document.hidden && document.hasFocus()) {
+      started = performance.now();
+      timer = setTimeout(update, remaining);
+    }
+  };
+  window.addEventListener('focus', update);
+  window.addEventListener('blur', update);
+  document.addEventListener('visibilitychange', update);
+  update();
+}
+
 function openDonate() {
   invoke('open_url', { url: `${DONATE_URL}?lang=${getLang() === 'hu' ? 'hu' : 'en'}` }).catch((e) => toast(String(e), 'err'));
 }
@@ -2078,6 +2112,7 @@ async function boot() {
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.theme === 'system') { applyTheme(); renderAll(true); } });
   splitter(document.getElementById('side-split'), document.getElementById('sidebar'), { min: 160, max: 520, key: 'gs.sideW' });
   renderAll();
+  startDonationTimer();
   const wanted = S.settings.active_repo;
   S.restoring = true;
   for (const p of S.settings.open_repos || []) await openRepo(p, { activate: false, quiet: true });
@@ -2094,16 +2129,27 @@ async function boot() {
     if (!cur() || Date.now() - lastFocus < 1500) return;
     lastFocus = Date.now();
     refreshAll(cur());
+    for (const repo of S.repos) {
+      if (repo !== cur()) refreshStatus(repo);
+    }
   });
-  // light polling of the working tree state
+  // Check every open repository, including tabs that have never been selected.
+  let polling = false;
   setInterval(async () => {
-    const r = cur();
-    if (!r || S.busy || document.hidden || !document.hasFocus() || document.querySelector('.overlay')) return;
-    const before = JSON.stringify(r.status);
-    await refreshStatus(r);
-    if (JSON.stringify(r.status) !== before) {
-      if (r.view === 'changes') renderAll(true);
-      else { renderSidebar(); renderToolbar(); renderStatusbar(); }
+    if (polling || S.busy || document.hidden || !document.hasFocus() || document.querySelector('.overlay')) return;
+    polling = true;
+    try {
+      for (const repo of [...S.repos]) {
+        if (!S.repos.includes(repo)) continue;
+        const before = JSON.stringify(repo.status);
+        await refreshStatus(repo);
+        if (repo === cur() && JSON.stringify(repo.status) !== before) {
+          if (repo.view === 'changes') renderAll(true);
+          else { renderSidebar(); renderToolbar(); renderStatusbar(); }
+        }
+      }
+    } finally {
+      polling = false;
     }
   }, 5000);
 

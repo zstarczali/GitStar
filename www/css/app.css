@@ -94,6 +94,8 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .tab:hover { background: var(--bg-hover); }
 .tab.active { background: var(--tab-active); color: var(--text); box-shadow: inset 0 2px 0 var(--accent); }
 .tab .name { overflow: hidden; text-overflow: ellipsis; }
+.tab .tab-changes { flex-shrink: 0; min-width: 18px; padding: 1px 5px; border-radius: 9px; background: var(--accent); color: var(--bg); font-size: 11px; font-weight: 700; text-align: center; }
+.tab .tab-changes.conflict { background: #c73545; color: #fff; }
 .tab .x { opacity: 0; border: 0; background: none; padding: 2px; border-radius: 4px; display: flex; }
 .tab:hover .x, .tab.active .x { opacity: .7; }
 .tab .x:hover { background: var(--bg-3); opacity: 1; }
