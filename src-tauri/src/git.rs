@@ -18,6 +18,8 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 #[derive(Clone)]
 pub struct Git {
     pub exe: String,
+    /// Private SSH key for remotes over SSH (empty = ssh's own defaults)
+    pub ssh_key: String,
 }
 
 pub struct Output {
@@ -35,7 +37,12 @@ impl Output {
 impl Git {
     pub fn new(exe: &str) -> Self {
         let exe = if exe.trim().is_empty() { "git".to_string() } else { exe.trim().to_string() };
-        Git { exe }
+        Git { exe, ssh_key: String::new() }
+    }
+
+    pub fn with_ssh_key(mut self, key: &str) -> Self {
+        self.ssh_key = key.trim().to_string();
+        self
     }
 
     fn command(&self, repo: Option<&str>, args: &[&str]) -> Command {
@@ -50,6 +57,7 @@ impl Git {
         cmd.env("GIT_OPTIONAL_LOCKS", "0");
         cmd.env("LC_ALL", "C");
         cmd.env("LANG", "C");
+        crate::ssh::apply_env(&mut cmd, &self.ssh_key);
         cmd.stdin(Stdio::null());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());

@@ -15,7 +15,8 @@ pub struct AppState {
 
 impl AppState {
     fn git(&self) -> Git {
-        Git::new(&self.settings.get().git_path)
+        let st = self.settings.get();
+        Git::new(&st.git_path).with_ssh_key(&st.ssh_key_path)
     }
 }
 
@@ -1422,4 +1423,63 @@ pub fn finish_splash(app: &tauri::AppHandle) {
     if let Some(splash) = app.get_webview_window("splashscreen") {
         let _ = splash.close();
     }
+}
+
+// ───────────────────────────── ssh / zoom ─────────────────────────────
+
+#[tauri::command]
+pub fn ssh_info() -> crate::ssh::SshInfo {
+    crate::ssh::info()
+}
+
+#[tauri::command]
+pub fn ssh_public_key(key: String) -> Result<String, String> {
+    crate::ssh::public_key(&key)
+}
+
+#[tauri::command]
+pub async fn ssh_generate_key(state: State<'_, AppState>, key: String, comment: String) -> Result<String, String> {
+    let git = state.settings.get().git_path;
+    blocking(move || crate::ssh::generate(&git, &key, &comment)).await
+}
+
+#[tauri::command]
+pub async fn ssh_test(state: State<'_, AppState>, key: String, host: String) -> Result<String, String> {
+    let git = state.settings.get().git_path;
+    blocking(move || crate::ssh::test(&git, &key, &host)).await
+}
+
+/// Zoom of the whole page (Ctrl + / Ctrl - / Ctrl 0, Ctrl + mouse wheel).
+#[tauri::command]
+pub fn set_zoom(window: tauri::WebviewWindow, scale: f64) -> Result<(), String> {
+    window.set_zoom(scale.clamp(0.5, 3.0)).map_err(|e| e.to_string())
+}
+
+/// Writes the window size/position to disk now (not only at exit, which is
+/// skipped when the process is ended by the system, an installer or a crash).
+pub fn save_window_state(app: &tauri::AppHandle) {
+    use tauri_plugin_window_state::AppHandleExt;
+    let _ = app.save_window_state(window_state_flags());
+}
+
+/// Saves the window state shortly after the last move/resize.
+pub fn save_window_state_later(app: &tauri::AppHandle) {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    static PENDING: AtomicBool = AtomicBool::new(false);
+    let now = || SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    LAST.store(now(), Ordering::SeqCst);
+    if PENDING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        while now().saturating_sub(LAST.load(Ordering::SeqCst)) < 1000 {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+        }
+        PENDING.store(false, Ordering::SeqCst);
+        let main = app.clone();
+        let _ = app.run_on_main_thread(move || save_window_state(&main));
+    });
 }

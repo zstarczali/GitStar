@@ -1,6 +1,27 @@
 GitStar - What's new
 ====================
 
+1.0.0
+-----
+- SSH keys: Settings → SSH. Choose the private key git uses for SSH
+  remotes, generate a new Ed25519 key, copy the public key for
+  GitHub/GitLab and test the connection. On macOS the ssh-agent of the
+  login shell (1Password, ssh-add…) is used too. An SSH permission error
+  shows a tip pointing there.
+- Zoom: Ctrl + / Ctrl − / Ctrl 0 or Ctrl + mouse wheel (Cmd on macOS),
+  also in Settings → Appearance; remembered between runs.
+- Panel sizes are saved in the settings file (they were sometimes lost
+  at exit), the window size and position are saved at once, not only at
+  a clean exit.
+- macOS: no File/View/Window/Help menu, only the application and Edit
+  menus (Edit is needed for Cmd+C/V). No browser context menu anywhere:
+  text fields and selected text get a Cut/Copy/Paste menu instead.
+- macOS: dragging the mouse no longer selects the texts of the interface.
+- Dialogs close only with their buttons or the × in their corner, not with
+  Escape or a click beside them.
+- Closing a repository tab asks first.
+- The same error message is shown only once, not stacked.
+
 0.3.3
 -----
 - AI through the Claude Code CLI: choose "Claude Code CLI" as AI provider
