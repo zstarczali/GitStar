@@ -69,7 +69,7 @@ pub fn find(custom: &str) -> Result<PathBuf, String> {
 fn command(exe: &Path) -> Command {
     // npm installs a .cmd shim on Windows, which only runs through cmd.exe
     let is_cmd = exe.extension().map(|e| e.eq_ignore_ascii_case("cmd") || e.eq_ignore_ascii_case("bat")).unwrap_or(false);
-    let mut cmd = if is_cmd {
+    let cmd = if is_cmd {
         let mut c = Command::new("cmd");
         c.arg("/D").arg("/C").arg(exe);
         c
@@ -77,7 +77,11 @@ fn command(exe: &Path) -> Command {
         Command::new(exe)
     };
     #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    let cmd = {
+        let mut cmd = cmd;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd
+    };
     cmd
 }
 

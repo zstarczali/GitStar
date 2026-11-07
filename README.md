@@ -6,13 +6,14 @@
 
 GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style interface. It runs Git operations through the installed Git executable, so hooks, credential helpers, Git LFS, and Git configuration work as they do on the command line.
 
-Current version **1.0.1**. The main-window Donate button appears after 10 minutes of foreground use. Time spent with the window unfocused or hidden pauses the timer, which resets each time GitStar starts. Donations are also available from the About dialog.
+Current version **1.0.2**. The main-window Donate button appears after 10 minutes of foreground use. Time spent with the window unfocused or hidden pauses the timer, which resets each time GitStar starts. Donations are also available from the About dialog.
 
 See [What's new](whatsnew.txt) for the release history.
 
 ## Features
 
 - **Repository tab indicators** — Tabs show the number of files with uncommitted changes, including staged, unstaged, and untracked files. Conflicts highlight the badge in red. Hover over the badge for a breakdown. All open repositories are checked at startup and every five seconds while the app is in focus, including tabs that have not been selected.
+- **Authentication** — Choose SSH or HTTPS per GitHub remote from Settings or the remote context menu, with separate Fetch/Push URL previews. SSH uses your selected key or agent; HTTPS uses saved Git credentials.
 - **Repositories** — Open, clone, and initialize repositories, work across tabs, and reopen recent repositories.
 - **Local changes** — View unstaged, staged, and conflicting files. Stage, unstage, or discard changes by file, **hunk, or line**. Click a line number to select it or Shift-click to select a range. Add files to `.gitignore`.
 - **Commits** — Amend commits, use Ctrl+Enter to commit, check the summary against a 72-character limit, and start with a prefilled merge message.
@@ -71,6 +72,13 @@ xattr -cr /Applications/GitStar.app
 
 The [installation guide](readme.txt) covers every target. It is uploaded as the `GitStar-installation-guide` artifact.
 
+### Existing macOS packaging warning
+
+Tauri reports that the existing bundle identifier `hu.gitstar.app` ends in
+`.app`. This is a naming recommendation and does not prevent building the
+application. The identifier is retained in 1.0.2 to preserve the existing
+application identity and settings location.
+
 ## AI setup
 
 In **Settings → AI → AI provider**, choose **Anthropic Claude (API key)**, **Claude Code CLI (your own login)** or **DeepSeek**.
@@ -101,6 +109,9 @@ When a diff exceeds 600,000 characters for Claude or 300,000 for DeepSeek, GitSt
 
 ```text
 src-tauri/src/
+  remote_auth.rs  Per-remote SSH / HTTPS conversion and validation
+  process.rs    Network process supervision and idle timeout
+  ssh.rs        SSH key selection, generation and connection tests
   git.rs        Runs Git with a hidden window on Windows, stable output, and stdin
   commands.rs   Tauri commands for status, refs, log, diff, staging, commits, operations, and AI
   graph.rs      Commit graph lane allocation and unit tests
@@ -128,3 +139,36 @@ GitStar is freeware: free to download and use, including at work, but it may not
 If GitStar is useful to you, you can support its development with a small [donation](https://www.c64va.pro/register/donate.php) (also from the heart button in the toolbar).
 
 © 2026 Zsolt Tarczali
+
+## Troubleshooting a push that keeps spinning
+
+GitStar disables interactive Git credential prompts, including inherited
+`GIT_ASKPASS` / `SSH_ASKPASS` programs from editors such as VS Code. If no
+saved HTTPS credential is available, the operation fails instead of waiting
+for a hidden login window. Configure your Git credential helper beforehand,
+or use an SSH remote with your key configured under **Settings → SSH**.
+An HTTPS URL does not use an SSH key.
+
+Push, fetch, pull, clone and ls-remote stop after 120 seconds without stdout
+or stderr output; progress output resets the timer. GitStar also stops their
+helper processes. This measures console inactivity, so a long silent server
+operation can time out too. After a timed-out push, fetch/check the remote
+before retrying: the server may already have accepted the changes. Rebuild
+and restart GitStar to apply these changes to an already running app.
+
+## Choosing SSH or HTTPS
+
+Open **Settings → Authentication** and select a remote, or right-click a
+remote in the sidebar and choose **Authentication: SSH / HTTPS…**. The dialog
+shows the current Fetch/Push URLs and previews the selected protocol. **Save**
+updates only that repository's remote configuration; a separate push target
+is preserved. Automatic conversion supports standard github.com addresses.
+Custom SSH aliases, ports, other hosts and multiple URLs should be edited
+through **Change URL** instead.
+
+**SSH** uses the private key saved under **Settings → SSH** or your SSH agent.
+Use **Connection test** to check whether GitHub accepts the key. A successful
+key test establishes your identity, but access to each repository also depends
+on that account's permissions. **HTTPS** uses saved Git credentials; an SSH
+key cannot authenticate an HTTPS remote. This selector chooses the protocol;
+it does not create an HTTPS login or token.

@@ -1,6 +1,22 @@
 GitStar - What's new
 ====================
 
+1.0.2
+-----
+- Per-remote SSH / HTTPS selector in Settings > Authentication and the
+  remote context menu. Shows current Fetch/Push URLs and previews changes.
+  Converts standard github.com URLs while preserving distinct push targets;
+  rejects unsupported URLs before changing configuration.
+- Explains that SSH keys apply to SSH URLs, while HTTPS uses saved Git
+  credentials. Updated README and installation guide.
+- Push/fetch/pull/clone no longer open inherited VS Code / other askpass
+  prompts invisibly. Missing credentials fail with a Git error instead.
+- Network Git operations stop after 120 seconds without console output;
+  their helper processes are stopped too. Progress output resets the timer.
+  After a timed-out push, check remote status before retrying.
+- Fix macOS Rust warnings: Linux-only PathBuf import and Windows-only
+  mutable command variable.
+
 1.0.1
 -----
 - Repository tabs show a badge with the number of files with uncommitted

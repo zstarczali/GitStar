@@ -1483,3 +1483,14 @@ pub fn save_window_state_later(app: &tauri::AppHandle) {
         let _ = app.run_on_main_thread(move || save_window_state(&main));
     });
 }
+
+#[tauri::command]
+pub async fn remote_auth_info(state: State<'_, AppState>, repo: String, remote: String) -> Result<crate::remote_auth::AuthInfo, String> {
+    let git = state.git();
+    blocking(move || crate::remote_auth::info(&git, &repo, &remote)).await
+}
+#[tauri::command]
+pub async fn set_remote_auth(state: State<'_, AppState>, repo: String, remote: String, mode: String) -> Result<(), String> {
+    let git = state.git();
+    blocking(move || crate::remote_auth::set(&git, &repo, &remote, &mode)).await
+}

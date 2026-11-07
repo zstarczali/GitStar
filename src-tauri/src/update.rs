@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;

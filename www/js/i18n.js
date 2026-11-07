@@ -16,6 +16,14 @@ export function t(s, ...args) {
 }
 
 const EN = {
+  'Hitelesítés': 'Authentication',
+  'Kapcsolat módja': 'Connection method',
+  'Hitelesítés: SSH / HTTPS…': 'Authentication: SSH / HTTPS…',
+  'A kapcsolat módját a remote URL-je határozza meg. SSH: a Beállításokban kiválasztott kulcs vagy az SSH-agent. HTTPS: a Git mentett hitelesítő adatai.': 'The remote URL determines the connection method. SSH uses the key selected in Settings or the SSH agent. HTTPS uses saved Git credentials.',
+  'A mentés ennek a tárolónak a remote-címeit módosítja. A külön Push-cél megmarad.': 'Saving changes the remote URLs in this repository. A separate push destination is preserved.',
+  'Hitelesítési mód mentve: {0}': 'Authentication method saved: {0}',
+  'A beállított SSH-kulcs csak SSH-címekhez használható. Válassz kapcsolatot tárolónként:': 'The configured SSH key applies only to SSH URLs. Choose the connection for each repository:',
+
   '{0}: kész': '{0}: done',
   '{0} sikertelen:\n{1}': '{0} failed:\n{1}',
   'Megnyitás Intézőben': 'Open in Explorer',

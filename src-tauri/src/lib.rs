@@ -1,6 +1,8 @@
 mod ai;
 mod commands;
 mod git;
+mod remote_auth;
+mod process;
 mod graph;
 mod settings;
 mod claude_cli;
@@ -111,6 +113,8 @@ pub fn run() {
             commands::head_message,
             commands::prepared_message,
             commands::git_op,
+            commands::remote_auth_info,
+            commands::set_remote_auth,
             commands::reveal_in_explorer,
             commands::open_file,
             commands::open_terminal,
