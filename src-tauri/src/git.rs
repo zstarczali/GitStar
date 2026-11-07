@@ -54,6 +54,13 @@ impl Git {
         cmd.args(["-c", "core.quotepath=false", "-c", "color.ui=never", "-c", "core.pager=cat"]);
         cmd.args(args);
         cmd.env("GIT_TERMINAL_PROMPT", "0");
+        // GIT_TERMINAL_PROMPT does not disable askpass inherited from VS Code.
+        // Fail clearly when no saved credentials exist; do not open hidden prompts.
+        cmd.env("GIT_ASKPASS", "");
+        cmd.env("SSH_ASKPASS", "");
+        cmd.env("SSH_ASKPASS_REQUIRE", "never");
+        cmd.env("GCM_INTERACTIVE", "Never");
+        cmd.env("GH_PROMPT_DISABLED", "1");
         cmd.env("GIT_OPTIONAL_LOCKS", "0");
         cmd.env("LC_ALL", "C");
         cmd.env("LANG", "C");
@@ -72,6 +79,8 @@ impl Git {
         if stdin.is_some() {
             cmd.stdin(Stdio::piped());
         }
+        let network = matches!(args.first(), Some(&"push" | &"pull" | &"fetch" | &"clone" | &"ls-remote"));
+        if network { crate::process::isolate(&mut cmd); }
         let mut child = cmd
             .spawn()
             .map_err(|e| format!("{} ({}): {}", tr("Nem sikerült elindítani a git-et", "Could not start git"), self.exe, e))?;
@@ -79,6 +88,9 @@ impl Git {
             if let Some(mut si) = child.stdin.take() {
                 si.write_all(data).map_err(|e| e.to_string())?;
             }
+        }
+        if network {
+            return crate::process::network_output(child, std::time::Duration::from_secs(120));
         }
         let out = child.wait_with_output().map_err(|e| e.to_string())?;
         Ok(Output {
@@ -155,4 +167,28 @@ pub fn git_dir(git: &Git, repo: &str) -> Option<std::path::PathBuf> {
     let out = git.run(repo, &["rev-parse", "--absolute-git-dir"]).ok()?;
     let p = out.trim();
     if p.is_empty() { None } else { Some(Path::new(p).to_path_buf()) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn missing_credentials_fail_without_opening_askpass() {
+        // An askpass from core.askPass would return fake credentials if invoked.
+        let mut cmd = Git::new("git").command(None, &[
+            "-c", "credential.helper=", "-c", "core.askPass=printf unexpected",
+            "credential", "fill",
+        ]);
+        cmd.current_dir(std::env::temp_dir())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", if cfg!(windows) { "NUL" } else { "/dev/null" })
+            .env("GIT_CONFIG_COUNT", "0")
+            .stdin(Stdio::piped());
+        let mut child = cmd.spawn().unwrap();
+        child.stdin.take().unwrap().write_all(b"protocol=https\nhost=example.invalid\n\n").unwrap();
+        let out = child.wait_with_output().unwrap();
+        assert!(!out.status.success());
+        assert!(String::from_utf8_lossy(&out.stderr).contains("terminal prompts disabled"));
+        assert!(out.stdout.is_empty());
+    }
 }

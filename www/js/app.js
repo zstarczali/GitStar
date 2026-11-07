@@ -405,6 +405,7 @@ function renderSideTree(tree, r) {
       click: () => { closed ? r.closedSecs.delete(key) : r.closedSecs.add(key); renderSidebar(); },
       contextmenu: (e) => contextMenu(e, [
         { label: `Fetch: ${rm.name}`, icon: 'fetch', action: () => op(`Fetch ${rm.name}`, ['fetch', '--prune', rm.name]) },
+        { label: t('Hitelesítés: SSH / HTTPS…'), icon: 'settings', action: () => remoteAuthDlg(r, rm.name) },
         { label: t('URL másolása'), icon: 'copy', action: () => copy(rm.url) },
         { label: t('URL módosítása…'), icon: 'changes', action: async () => {
           const v = await formDlg('Remote URL', [{ name: 'url', label: rm.name, value: rm.url }], t('Mentés'));
@@ -1789,6 +1790,26 @@ async function aboutDlg() {
 }
 
 // ── settings ──
+async function remoteAuthDlg(repo, remote) {
+  try {
+    const info = await invoke('remote_auth_info', { repo: repo.path, remote });
+    const mode = h('select.inp', { style: { width: '150px', maxWidth: '100%', minHeight: '32px' } }, h('option', { value: 'ssh' }, 'SSH'), h('option', { value: 'https' }, 'HTTPS'));
+    mode.value = info.fetch_url.startsWith('https://') ? 'https' : 'ssh';
+    const preview = h('pre.note', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } });
+    const update = () => { preview.textContent = `Fetch: ${info[mode.value + '_fetch']}\nPush: ${info[mode.value + '_push']}`; };
+    mode.addEventListener('change', update); update();
+    const body = h('div', h('p', t('A kapcsolat módját a remote URL-je határozza meg. SSH: a Beállításokban kiválasztott kulcs vagy az SSH-agent. HTTPS: a Git mentett hitelesítő adatai.')),
+      h('pre.note', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, `Fetch: ${info.fetch_url}\nPush: ${info.push_url}`),
+      h('label.field', { style: { width: 'fit-content', maxWidth: '100%', margin: '16px 0' } }, h('span', t('Kapcsolat módja')), mode), preview, h('p.note', t('A mentés ennek a tárolónak a remote-címeit módosítja. A külön Push-cél megmarad.')));
+    const ok = await modal({ title: `${remote} — ${t('Hitelesítés')}`, body,
+      buttons: [{ label: t('Mégse'), value: false }, { label: t('Mentés'), value: true, primary: true }] });
+    if (!ok) return;
+    await invoke('set_remote_auth', { repo: repo.path, remote, mode: mode.value });
+    toast(t('Hitelesítési mód mentve: {0}', mode.value.toUpperCase()), 'ok');
+    await refreshAll(repo);
+  } catch (e) { toast(String(e), 'err'); }
+}
+
 async function settingsDlg() {
   const s = S.settings;
   let ident = { global_name: '', global_email: '' };
@@ -1919,6 +1940,9 @@ async function settingsDlg() {
       t('Shift+kattintás vagy jobb klikk a Pull gombon mindig megnyitja a párbeszédablakot.')),
     fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
     h('div'),
+    h('div.settings-sec', t('Hitelesítés')),
+    h('div.field.full', h('span.note', t('A beállított SSH-kulcs csak SSH-címekhez használható. Válassz kapcsolatot tárolónként:')),
+      ...(cur()?.refs?.remotes || []).map((rm) => h('button.btn', { on: { click: () => remoteAuthDlg(cur(), rm.name) } }, `${rm.name}: SSH / HTTPS…`))),
     h('div.settings-sec', 'SSH'),
     h('div.field.full', h('span', t('Privát SSH kulcs')),
       row(sshCombo, h('button.btn', { on: { click: sshBrowse } }, t('Tallózás…')), h('button.btn', { on: { click: sshGen } }, t('Új kulcs…'))),

@@ -1,8 +1,12 @@
 GitStar Installation Guide
 ==========================
 
-Version 1.0.1
+Version 1.0.2
 -------------
+Choose SSH or HTTPS per GitHub remote in Settings > Authentication.
+This release also fixes hidden credential prompts and idle network
+operations. See the authentication and troubleshooting sections below.
+
 The main-window Donate button appears after 10 minutes of foreground
 use. The timer pauses while the window is unfocused or hidden and
 resets each time GitStar starts. You can also donate from the About
@@ -90,3 +94,33 @@ AppImage
   compatibility package (libfuse2 on Ubuntu 22.04 or libfuse2t64 on
   Ubuntu 24.04), or try:
   ./GitStar_amd64.AppImage --appimage-extract-and-run
+
+Push keeps spinning
+------------------
+GitStar disables inherited interactive credential prompts, including VS
+Code askpass. Configure a saved HTTPS credential in your Git credential
+helper, or use an SSH remote with Settings > SSH. SSH keys are not used
+for HTTPS URLs. Missing credentials now fail instead of opening a hidden
+prompt. Restart the updated app to use this behavior.
+Network Git operations stop after 120 seconds without console output;
+progress resets the timer. A silent server operation may also time out.
+After a timed-out push, check/fetch remote status before retrying, because
+the server may already have accepted the changes.
+
+Choose SSH or HTTPS (1.0.2)
+---------------------------
+Settings > Authentication > select a remote, or right-click a remote >
+Authentication: SSH / HTTPS. Check the current URLs and preview, then Save.
+The setting is per repository and preserves a separate Push destination.
+Standard github.com URLs can be converted automatically; for custom SSH
+aliases/ports, other hosts or multiple URLs, use Change URL instead.
+SSH uses Settings > SSH (selected private key or agent). Connection test
+checks the key; repository access still requires permission for that account.
+HTTPS uses saved Git credentials and cannot use your SSH key. Choosing HTTPS
+does not create a login or token.
+
+macOS build note
+----------------
+Tauri may warn that the existing bundle identifier hu.gitstar.app ends
+in .app. This naming recommendation does not prevent the build. Version
+1.0.2 retains the identifier and existing settings location.
