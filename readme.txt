@@ -124,3 +124,23 @@ macOS build note
 Tauri may warn that the existing bundle identifier hu.gitstar.app ends
 in .app. This naming recommendation does not prevent the build. Version
 1.0.2 retains the identifier and existing settings location.
+
+Cloning repositories
+--------------------
+Settings > Git > Git root folder > Browse sets the default clone parent.
+Existing repositories are not moved. In Clone, paste the repository URL.
+Choose SSH (GitHub) to use your selected SSH key/agent, HTTPS (GitHub) to
+use saved Git credentials, or Use the supplied URL for other hosts/aliases.
+An SSH key configured in Settings makes SSH the initial clone choice.
+
+The parent folder has a Browse button. The folder name is inferred from
+the URL and remains editable. Fill paths from repository resets the name
+and restores the default parent (Git root, last clone parent, or active
+repository parent). Check the actual URL and destination in the preview.
+Paths now use native separators, fixing the previous macOS clone path bug.
+
+Example with Git root /Users/zsolt/Dev:
+  Input: https://github.com/zstarczali/SID-Studio.git
+  Mode: SSH (GitHub)
+  Clone URL: git@github.com:zstarczali/SID-Studio.git
+  Destination: /Users/zsolt/Dev/SID-Studio

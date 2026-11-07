@@ -1632,9 +1632,9 @@ async function addRemoteDlg() {
 }
 
 // ── repositories ──
-async function pickFolder(title) {
+async function pickFolder(title, defaultPath) {
   try {
-    const res = await invoke('plugin:dialog|open', { options: { directory: true, multiple: false, title } });
+    const res = await invoke('plugin:dialog|open', { options: { directory: true, multiple: false, title, ...(defaultPath ? { defaultPath } : {}) } });
     return Array.isArray(res) ? res[0] : res;
   } catch (e) { toast(e, 'err'); return null; }
 }
@@ -1688,23 +1688,60 @@ function closeRepo(i) {
 }
 
 async function cloneDlg() {
-  const v = await formDlg(t('Repository klónozása'), [
-    { name: 'url', label: 'URL', placeholder: 'https://github.com/user/repo.git' },
-    { name: 'parent', label: t('Szülő mappa'), value: uiGet('gs.cloneParent') || '', note: t('Ide kerül a repository mappája.') },
-    { name: 'name', label: t('Mappa neve (üres = a repository neve)') },
-  ], t('Klónozás'));
-  if (!v || !v.url.trim()) return;
-  let parent = v.parent.trim();
-  if (!parent) { parent = await pickFolder(t('Hova klónozzam?')); if (!parent) return; }
-  uiSet('gs.cloneParent', parent);
-  const name = v.name.trim() || basename(v.url.trim().replace(/\/+$/, '')).replace(/\.git$/, '');
-  const dest = parent.replace(/[\\/]+$/, '') + '\\' + name;
-  setBusy(true, t('Klónozás: {0}…', v.url));
+  const defaultParent = S.settings.git_root_path || uiGet('gs.cloneParent') || (cur() ? dirname(cur().path) : '');
+  const url = h('input.inp', { placeholder: 'https://github.com/owner/repo.git', spellcheck: 'false' });
+  const parent = h('input.inp', { value: defaultParent, spellcheck: 'false' });
+  const name = h('input.inp', { spellcheck: 'false' });
+  const mode = h('select.inp', { style: { width: '180px', maxWidth: '100%' } },
+    h('option', { value: 'original' }, t('A megadott URL szerint')), h('option', { value: 'ssh' }, 'SSH (GitHub)'), h('option', { value: 'https' }, 'HTTPS (GitHub)'));
+  mode.value = S.settings.ssh_key_path ? 'ssh' : 'original';
+  const preview = h('pre.note', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } });
+  let plan = null, sequence = 0, nameEdited = false, submit;
+  const update = async () => {
+    const request = ++sequence;
+    plan = null;
+    if (submit) submit.disabled = true;
+    try {
+      const result = await invoke('clone_plan', { url: url.value, parent: parent.value, name: nameEdited ? name.value : '', mode: mode.value });
+      if (request !== sequence) return;
+      plan = result;
+      if (!nameEdited) name.value = result.name;
+      preview.className = 'note';
+      preview.textContent = `${t('Klónozási cím')}: ${result.url}\n${t('Célmappa')}: ${result.dest}`;
+      if (submit) submit.disabled = false;
+    } catch (e) {
+      if (request !== sequence) return;
+      preview.className = 'note err'; preview.textContent = String(e);
+    }
+  };
+  for (const el of [url, parent]) el.addEventListener('input', update);
+  name.addEventListener('input', () => { nameEdited = true; update(); });
+  mode.addEventListener('change', update);
+  const browse = h('button.btn', { type: 'button', on: { click: async () => {
+    const p = await pickFolder(t('Szülő mappa'), parent.value || undefined);
+    if (p) { parent.value = p; update(); }
+  } } }, t('Tallózás…'));
+  const fill = h('button.btn', { type: 'button', on: { click: () => {
+    nameEdited = false; name.value = ''; parent.value = defaultParent || parent.value; update();
+  } } }, t('Útvonalak kitöltése a repo alapján'));
+  const field = (label, ...children) => h('label.field', h('span', label), ...children);
+  const body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
+    field('Repository URL', url), field(t('Kapcsolat módja'), mode),
+    h('span.note', t('SSH: a beállított kulcs vagy az agent. HTTPS: mentett Git-hitelesítés. GitHub-címnél a választott módra alakítjuk az URL-t. Más szolgáltatónál válaszd az URL szerinti módot.')),
+    field(t('Szülő mappa'), h('div', { style: { display: 'flex', gap: '6px' } }, parent, browse)),
+    field(t('Repository mappaneve'), name), h('div', fill), preview);
+  const selected = await modal({ title: t('Repository klónozása'), body,
+    buttons: [{ label: t('Mégse'), value: null }, { label: t('Klónozás'), value: () => plan, primary: true }],
+    onOpen: (m) => { submit = m.querySelector('.modal-f .primary'); submit.disabled = true; } });
+  ++sequence;
+  if (!selected) return;
+  uiSet('gs.cloneParent', selected.parent);
+  setBusy(true, t('Klónozás: {0}…', selected.url));
   try {
-    const info = await invoke('clone_repo', { url: v.url.trim(), dest });
+    const info = await invoke('clone_repo', { url: selected.url, dest: selected.dest });
     toast(t('Klónozva: {0}', info.path), 'ok');
     await openRepo(info.path);
-  } catch (e) { toast(t('Klónozás sikertelen:\n') + e, 'err'); }
+  } catch (e) { toast(t('Klónozás sikertelen:\n') + e + sshHint(e), 'err'); }
   finally { setBusy(false); }
 }
 
@@ -1820,6 +1857,11 @@ async function settingsDlg() {
   const els = {};
   const fld = (name, label, el, note, full) => { els[name] = el; return h('label.field' + (full ? '.full' : ''), h('span', label), el, note ? h('span.note', note) : null); };
   const sel = (opts, val) => { const e = h('select.inp', opts.map(([v, l]) => h('option', { value: v }, l))); e.value = val; return e; };
+  const gitRoot = h('input.inp', { value: s.git_root_path || '', spellcheck: 'false', placeholder: t('Alapértelmezett szülőmappa klónozáshoz') });
+  const browseGitRoot = async () => {
+    const p = await pickFolder(t('Git gyökérmappa'), gitRoot.value || undefined);
+    if (p) gitRoot.value = p;
+  };
   const gitVer = h('span.note', '');
   const gitInp = h('input.inp', { value: s.git_path, placeholder: t('git (a PATH-ból) vagy C:\\Program Files\\Git\\cmd\\git.exe'), spellcheck: 'false' });
   const testGit = async () => { try { gitVer.textContent = '✓ ' + (await invoke('git_version', { path: gitInp.value || 'git' })); } catch (e) { gitVer.textContent = '✗ ' + e; } };
@@ -1933,6 +1975,9 @@ async function settingsDlg() {
       h('button.btn', { on: { click: async () => {
         try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: t('git.exe kiválasztása'), ...(/Windows/i.test(navigator.userAgent) ? { filters: [{ name: 'git', extensions: ['exe'] }] } : {}) } }); if (p) { gitInp.value = p; testGit(); } } catch (e) { toast(e, 'err'); }
       } } }, t('Tallózás…')), h('button.btn', { on: { click: testGit } }, t('Teszt'))), gitVer),
+    h('label.field.full', h('span', t('Git gyökérmappa')),
+      h('div', { style: { display: 'flex', gap: '6px' } }, gitRoot, h('button.btn', { type: 'button', on: { click: browseGitRoot } }, t('Tallózás…'))),
+      h('span.note', t('A klónozó ezt ajánlja fel szülőmappának. A meglévő repository-kat nem mozgatja át.'))),
     h('label.field', h('span', t('Név (user.name)')), gitName),
     h('label.field', h('span', t('Email (user.email)')), gitEmail),
     h('div.note.full', t('A név és az email a globális git beállításba kerül (git config --global), minden repóra érvényes, ahol nincs saját beállítás.')),
@@ -1976,6 +2021,7 @@ async function settingsDlg() {
   if (!ok) return;
   Object.assign(S.settings, {
     git_path: gitInp.value.trim(),
+    git_root_path: gitRoot.value.trim(),
     log_limit: Math.max(100, +els.log_limit.value || 1500),
     theme: els.theme.value,
     ui_language: els.ui_language.value,

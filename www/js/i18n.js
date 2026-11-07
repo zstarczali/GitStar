@@ -16,6 +16,16 @@ export function t(s, ...args) {
 }
 
 const EN = {
+  'Git gyökérmappa': 'Git root folder',
+  'Alapértelmezett szülőmappa klónozáshoz': 'Default parent folder for cloning',
+  'A klónozó ezt ajánlja fel szülőmappának. A meglévő repository-kat nem mozgatja át.': 'The clone dialog uses this as the default parent folder. Existing repositories are not moved.',
+  'A megadott URL szerint': 'Use the supplied URL',
+  'Klónozási cím': 'Clone URL',
+  'Célmappa': 'Destination folder',
+  'Repository mappaneve': 'Repository folder name',
+  'Útvonalak kitöltése a repo alapján': 'Fill paths from repository',
+  'SSH: a beállított kulcs vagy az agent. HTTPS: mentett Git-hitelesítés. GitHub-címnél a választott módra alakítjuk az URL-t. Más szolgáltatónál válaszd az URL szerinti módot.': 'SSH uses the configured key or agent. HTTPS uses saved Git credentials. GitHub URLs are converted to the selected method. For other hosts, choose Use the supplied URL.',
+
   'Hitelesítés': 'Authentication',
   'Kapcsolat módja': 'Connection method',
   'Hitelesítés: SSH / HTTPS…': 'Authentication: SSH / HTTPS…',
