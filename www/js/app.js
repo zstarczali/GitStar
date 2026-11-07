@@ -3,6 +3,7 @@
 import {
   invoke, h, icon, toast, modal, confirmDlg, formDlg, combo, contextMenu, relTime, fmtDate, avatar,
   short, basename, dirname, splitter, markdown, shellSplit, debounce, esc,
+  initUiState, uiGet, uiSet, editMenu,
 } from './util.js';
 import { DiffView, renderBlame } from './diff.js';
 import { t, setLang, getLang } from './i18n.js';
@@ -88,6 +89,29 @@ function applyTheme() {
   document.documentElement.style.setProperty('--font-size', (S.settings.font_size || 13) + 'px');
 }
 
+// ── zoom (Ctrl + / Ctrl - / Ctrl 0, Ctrl + mouse wheel) ──
+const ZOOMS = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const zoomNow = () => S.settings?.zoom || 1;
+const saveZoomLater = debounce(() => saveSettings(), 600);
+function applyZoom() {
+  invoke('set_zoom', { scale: zoomNow() }).catch(() => {});
+}
+function setZoom(z) {
+  z = Math.max(ZOOMS[0], Math.min(ZOOMS[ZOOMS.length - 1], Math.round(z * 100) / 100));
+  if (z === zoomNow()) return;
+  S.settings.zoom = z;
+  applyZoom();
+  saveZoomLater();
+  toast(t('Nagyítás: {0}%', Math.round(z * 100)), 'info', 1200);
+  renderStatusbar();
+}
+function zoomStep(dir) {
+  const z = zoomNow();
+  if (dir === 0) return setZoom(1);
+  const next = dir > 0 ? ZOOMS.find((x) => x > z + 0.001) : [...ZOOMS].reverse().find((x) => x < z - 0.001);
+  if (next) setZoom(next);
+}
+
 // The toolbar button only flips between the plain dark and light themes;
 // the other themes (AI, retro, modern…) are chosen in Settings.
 const THEME_UI = { dark: ['Sötét', 'moon'], light: ['Világos', 'sun'] };
@@ -126,13 +150,20 @@ async function op(label, args, { quiet = false, refresh = true, repo = cur() } =
     consoleLog(repo, args, out, false);
     return out;
   } catch (e) {
-    toast(t('{0} sikertelen:\n{1}', label, e), 'err');
+    toast(t('{0} sikertelen:\n{1}', label, e) + sshHint(e), 'err');
     consoleLog(repo, args, String(e), true);
     return null;
   } finally {
     setBusy(false);
     if (refresh) await refreshAll(repo);
   }
+}
+
+/** Tip under an SSH authentication error. */
+function sshHint(e) {
+  return /Permission denied \(publickey|Host key verification failed|Could not open a connection to your authentication agent/i.test(String(e))
+    ? '\n\n' + t('Tipp: Beállítások → SSH: válaszd ki a privát kulcsodat, vagy generálj újat, és a publikus kulcsot add hozzá a GitHub/GitLab fiókodhoz.')
+    : '';
 }
 
 /**
@@ -199,18 +230,18 @@ function renderTabs() {
     ...S.repos.map((r, i) => h('div.tab' + (i === S.active ? '.active' : ''), {
       title: r.path,
       on: {
-        mousedown: (e) => { if (e.button === 1) { e.preventDefault(); closeRepo(i); } },
+        mousedown: (e) => { if (e.button === 1) { e.preventDefault(); askCloseRepo(i); } },
         click: () => switchRepo(i),
         contextmenu: (e) => contextMenu(e, [
           { label: t('Megnyitás Intézőben'), icon: 'folder', action: () => invoke('reveal_in_explorer', { path: r.path }) },
           { label: t('Terminál itt'), icon: 'terminal', action: () => invoke('open_terminal', { path: r.path }) },
           { label: t('Útvonal másolása'), icon: 'copy', action: () => copy(r.path) },
           '-',
-          { label: t('Bezárás'), icon: 'close', action: () => closeRepo(i) },
+          { label: t('Bezárás'), icon: 'close', action: () => askCloseRepo(i) },
         ]),
       },
     }, icon('folder'), h('span.name', r.name),
-    h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); closeRepo(i); } } }, icon('close')))),
+    h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); askCloseRepo(i); } } }, icon('close')))),
     h('button.tab-add', { title: t('Repository megnyitása (Ctrl+O)'), on: { click: () => { S.active = -1; renderAll(); } } }, icon('plus')),
   );
 }
@@ -273,6 +304,7 @@ function renderStatusbar() {
     h('span.grow'),
     st ? h('span', t('{0} staged · {1} változott', st.staged.length, st.unstaged.length) + (st.conflicted.length ? t(' · {0} konfliktus', st.conflicted.length) : '')) : null,
     r ? h('span', t('{0} commit', r.commits.length)) : null,
+    zoomNow() !== 1 ? h('span.zoom-status', { title: t('Nagyítás visszaállítása 100%-ra (Ctrl+0)'), on: { click: () => setZoom(1) } }, Math.round(zoomNow() * 100) + '%') : null,
     h('span', t('AI: {0}', aiKey() ? aiModel() : t('nincs kulcs'))),
     S.update?.updateAvailable ? h('span.update-status', { title: t('Kattints a telepítéshez'), on: { click: () => updateShowAvailable() } }, icon('fetch'), t('Frissítés elérhető: v{0}', S.update.latestVersion)) : null,
   );
@@ -1627,6 +1659,16 @@ async function switchRepo(i) {
   await refreshAll(cur());
 }
 
+/** Closing a tab asks first: the × is easy to hit by accident. */
+async function askCloseRepo(i) {
+  const r = S.repos[i];
+  if (!r) return;
+  const ok = await confirmDlg(t('Fül bezárása'),
+    t('Bezárod a(z) „{0}” fület?\nA repository a lemezen megmarad, később újra megnyithatod.', r.name), t('Bezárás'));
+  const idx = S.repos.indexOf(r);
+  if (ok && idx >= 0) closeRepo(idx);
+}
+
 function closeRepo(i) {
   S.repos.splice(i, 1);
   if (S.active >= S.repos.length) S.active = S.repos.length - 1;
@@ -1638,13 +1680,13 @@ function closeRepo(i) {
 async function cloneDlg() {
   const v = await formDlg(t('Repository klónozása'), [
     { name: 'url', label: 'URL', placeholder: 'https://github.com/user/repo.git' },
-    { name: 'parent', label: t('Szülő mappa'), value: localStorage.getItem('gs.cloneParent') || '', note: t('Ide kerül a repository mappája.') },
+    { name: 'parent', label: t('Szülő mappa'), value: uiGet('gs.cloneParent') || '', note: t('Ide kerül a repository mappája.') },
     { name: 'name', label: t('Mappa neve (üres = a repository neve)') },
   ], t('Klónozás'));
   if (!v || !v.url.trim()) return;
   let parent = v.parent.trim();
   if (!parent) { parent = await pickFolder(t('Hova klónozzam?')); if (!parent) return; }
-  localStorage.setItem('gs.cloneParent', parent);
+  uiSet('gs.cloneParent', parent);
   const name = v.name.trim() || basename(v.url.trim().replace(/\/+$/, '')).replace(/\.git$/, '');
   const dest = parent.replace(/[\\/]+$/, '') + '\\' + name;
   setBusy(true, t('Klónozás: {0}…', v.url));
@@ -1786,6 +1828,50 @@ async function settingsDlg() {
     await saveSettings();
     checkForAppUpdate();
   };
+  // ── SSH key ──
+  const sshInfo = await invoke('ssh_info').catch(() => ({ dir: '', keys: [], new_key: '' }));
+  const sshCombo = combo({ value: s.ssh_key_path || '', options: sshInfo.keys, placeholder: t('üres = az ssh saját beállítása (~/.ssh, ssh-agent)') });
+  sshCombo.style.flex = '1';
+  const sshInp = sshCombo.input;
+  const sshOut = h('span.note', '');
+  const sshMsg = (ok, txt) => { sshOut.className = 'note ' + (ok ? 'ok' : 'err'); sshOut.textContent = (ok ? '✓ ' : '✗ ') + txt; };
+  const sshHost = h('input.inp', { value: uiGet('gs.sshHost') || 'git@github.com', spellcheck: 'false', style: { width: '190px', flex: 'none' } });
+  const sshBrowse = async () => {
+    try {
+      const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: t('Privát SSH kulcs kiválasztása'), ...(sshInfo.dir ? { defaultPath: sshInfo.dir } : {}) } });
+      if (p) sshInp.value = (Array.isArray(p) ? p[0] : p).replace(/\.pub$/i, '');
+    } catch (e) { toast(e, 'err'); }
+  };
+  const sshCopy = async () => {
+    try {
+      const k = await invoke('ssh_public_key', { key: sshInp.value.trim().replace(/\.pub$/i, '') });
+      await navigator.clipboard.writeText(k);
+      sshMsg(true, t('A publikus kulcs a vágólapon. Add hozzá a GitHub/GitLab fiókodhoz (Settings → SSH keys).'));
+    } catch (e) { sshMsg(false, String(e)); }
+  };
+  const sshGen = async () => {
+    const v = await formDlg(t('Új SSH kulcs'), [
+      { name: 'key', label: t('Privát kulcs fájl'), value: sshInfo.new_key },
+      { name: 'comment', label: t('Megjegyzés (általában az email címed)'), value: gitEmail.value.trim() },
+    ], t('Generálás'), t('Ed25519 kulcspár készül jelszó nélkül; a publikus kulcs ugyanide kerül .pub kiterjesztéssel.'));
+    if (!v || !v.key.trim()) return;
+    try {
+      const pubKey = await invoke('ssh_generate_key', { key: v.key.trim(), comment: v.comment });
+      sshInp.value = v.key.trim();
+      await navigator.clipboard.writeText(pubKey).catch(() => {});
+      sshMsg(true, t('A kulcs elkészült, a publikus kulcs a vágólapon. Add hozzá a GitHub/GitLab fiókodhoz, majd mentsd a beállításokat.'));
+    } catch (e) { sshMsg(false, String(e)); }
+  };
+  const sshTestBtn = h('button.btn', { on: { click: async () => {
+    sshTestBtn.disabled = true;
+    sshOut.className = 'note';
+    sshOut.textContent = t('Kapcsolódás: {0}…', sshHost.value.trim());
+    uiSet('gs.sshHost', sshHost.value.trim());
+    try { sshMsg(true, await invoke('ssh_test', { key: sshInp.value.trim().replace(/\.pub$/i, ''), host: sshHost.value })); }
+    catch (e) { sshMsg(false, String(e)); }
+    finally { sshTestBtn.disabled = false; }
+  } } }, t('Kapcsolat teszt'));
+  const row = (...kids) => h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, ...kids);
   const body = h('div.settings-grid',
     h('div.settings-sec', 'Git'),
     h('label.field.full', h('span', t('git.exe útvonala')), h('div', { style: { display: 'flex', gap: '6px' } }, gitInp,
@@ -1799,11 +1885,23 @@ async function settingsDlg() {
       t('Shift+kattintás vagy jobb klikk a Pull gombon mindig megnyitja a párbeszédablakot.')),
     fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
     h('div'),
+    h('div.settings-sec', 'SSH'),
+    h('div.field.full', h('span', t('Privát SSH kulcs')),
+      row(sshCombo, h('button.btn', { on: { click: sshBrowse } }, t('Tallózás…')), h('button.btn', { on: { click: sshGen } }, t('Új kulcs…'))),
+      h('span.note', t('A git ezzel a kulccsal csatlakozik az SSH-s remote-okhoz (git@github.com:…). Üresen hagyva az ssh saját beállítása és az ssh-agent érvényes. Jelszavas kulcsot előbb add hozzá az ssh-agenthez (ssh-add).'))),
+    h('div.field.full',
+      row(h('button.btn', { on: { click: sshCopy } }, icon('copy'), t('Publikus kulcs másolása')),
+        h('button.btn', { on: { click: () => invoke('open_url', { url: 'https://github.com/settings/ssh/new' }).catch((e) => toast(e, 'err')) } }, t('GitHub: új SSH kulcs')),
+        h('span.grow', { style: { flex: '1' } }), sshHost, sshTestBtn),
+      sshOut),
     h('div.settings-sec', t('Megjelenés')),
     fld('ui_language', t('Felület nyelve'), sel([['auto', t('Automatikus (rendszer)')], ['hu', 'Magyar'], ['en', 'English']], s.ui_language || 'auto')),
     h('div'),
     fld('theme', t('Téma'), sel([['dark', t('Sötét')], ['light', t('Világos')], ['ai', 'AI (neon)'], ['retro', t('Retró (8 bites)')], ['modern', t('Modern (üveg)')], ['modern-dark', t('Modern sötét (üveg)')], ['system', t('Rendszer szerint')]], s.theme)),
     fld('font_size', t('Betűméret'), h('input.inp', { type: 'number', min: 10, max: 20, value: s.font_size })),
+    fld('zoom', t('Nagyítás'), sel(ZOOMS.map((z) => [String(z), Math.round(z * 100) + '%']), String(ZOOMS.includes(zoomNow()) ? zoomNow() : 1)),
+      t('Gyorsan: Ctrl + / Ctrl − / Ctrl 0, vagy Ctrl + egérgörgő.')),
+    h('div'),
     h('div.settings-sec', 'AI'),
     h('label.field.full', h('span', t('AI szolgáltató')), h('div', { style: { display: 'flex', gap: '6px' } }, providerSel, aiTestBtn), aiTestOut),
     claudeBox,
@@ -1834,7 +1932,10 @@ async function settingsDlg() {
     commit_style: els.commit_style.value,
     pull_mode: els.pull_mode.value,
     update_check: updCheck.checked,
+    ssh_key_path: sshInp.value.trim().replace(/\.pub$/i, ''),
+    zoom: +els.zoom.value || 1,
   });
+  applyZoom();
   try { await invoke('update_server_check', { url: updServer.value }); S.settings.update_server = updServer.value.trim(); }
   catch (e) { toast(String(e), 'err'); }
   await saveSettings();
@@ -1869,7 +1970,7 @@ function updateDlgEls() {
     h('div.modal.update-dlg', els.title, h('div.modal-b', els.msg, els.prog), h('div.modal-f', els.skip, els.close, els.install)));
   ov.els = els;
   const shut = () => { if (!updBusy) { ov.remove(); document.removeEventListener('keydown', onKey, true); } };
-  function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); shut(); } }
+  function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); } }
   els.close.addEventListener('click', shut);
   els.skip.addEventListener('click', () => {
     S.settings.update_skip = S.update?.latestVersion || '';
@@ -1877,7 +1978,6 @@ function updateDlgEls() {
     shut();
   });
   els.install.addEventListener('click', () => installUpdate());
-  ov.addEventListener('mousedown', (e) => { if (e.target === ov) shut(); });
   document.addEventListener('keydown', onKey, true);
   document.body.append(ov);
   return els;
@@ -1970,8 +2070,11 @@ async function installUpdate() {
 async function boot() {
   try { S.settings = await invoke('get_settings'); }
   catch (e) { S.settings = { theme: 'dark', diff_mode: 'split', diff_context: 3, log_limit: 1500, recent_repos: [], open_repos: [] }; toast(e, 'err'); }
+  S.settings.ui_state ||= {};
+  initUiState(S.settings.ui_state, debounce(() => saveSettings(), 300));
   applyLang();
   applyTheme();
+  if (zoomNow() !== 1) applyZoom();
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.theme === 'system') { applyTheme(); renderAll(true); } });
   splitter(document.getElementById('side-split'), document.getElementById('sidebar'), { min: 160, max: 520, key: 'gs.sideW' });
   renderAll();
@@ -2005,6 +2108,12 @@ async function boot() {
   }, 5000);
 
   document.addEventListener('keydown', (e) => {
+    // zoom works everywhere, dialogs included (Cmd on macOS)
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const k = e.key, c = e.code;
+      const dir = (k === '+' || k === '=' || c === 'NumpadAdd') ? 1 : (k === '-' || c === 'NumpadSubtract') ? -1 : (k === '0' || c === 'Numpad0') ? 0 : null;
+      if (dir !== null) { e.preventDefault(); zoomStep(dir); return; }
+    }
     if (document.querySelector('.overlay')) return;
     const r = cur();
     if (e.key === 'F5') { e.preventDefault(); if (r) refreshAll(r); }
@@ -2018,7 +2127,29 @@ async function boot() {
     else if (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); diffView().jump(e.key === 'ArrowDown' ? 1 : -1); }
     else if (e.key === 'Escape') { document.querySelector('.ai-panel')?.remove(); }
   });
-  document.addEventListener('contextmenu', (e) => { if (!e.target.closest('input,textarea,.diff-scroll,.ai-body,.cmeta,.console-out')) e.preventDefault(); });
+  // (a touchpad pinch also arrives as Ctrl+wheel, in many small steps: collect them)
+  let wheelSum = 0, wheelLast = 0, wheelAt = 0;
+  addEventListener('wheel', (e) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const now = Date.now();
+    if (now - wheelLast > 400) wheelSum = 0;
+    wheelLast = now;
+    wheelSum += e.deltaY;
+    if (Math.abs(wheelSum) < 40 || now - wheelAt < 120) return;
+    wheelAt = now;
+    zoomStep(wheelSum < 0 ? 1 : -1);
+    wheelSum = 0;
+  }, { passive: false });
+  // never the browser's own menu (Back, Reload, Print, Inspect…): our menus
+  // where there is one, a Cut/Copy/Paste menu on text fields and selected text
+  document.addEventListener('contextmenu', (e) => {
+    if (e.defaultPrevented) return;
+    e.preventDefault();
+    editMenu(e);
+  });
+  // no dragging of links, images or text out of the window
+  document.addEventListener('dragstart', (e) => { if (!e.target.closest?.('[draggable="true"]')) e.preventDefault(); });
 
   // quiet update check a little after startup (Settings → Update)
   if (S.settings.update_check !== false) setTimeout(() => checkForAppUpdate({ silent: true }), 4000);

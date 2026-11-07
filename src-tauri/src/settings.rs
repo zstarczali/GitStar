@@ -1,6 +1,7 @@
 //! Persistent settings (app config dir / settings.json).
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -57,6 +58,12 @@ pub struct Settings {
     pub update_check: bool,
     /// Version the user chose to skip ("Skip this version")
     pub update_skip: String,
+    /// Private SSH key used for git over SSH (empty = ssh's own defaults / agent)
+    pub ssh_key_path: String,
+    /// Zoom of the whole UI (1.0 = 100%)
+    pub zoom: f64,
+    /// UI layout state saved by the frontend (panel sizes, last folders...)
+    pub ui_state: HashMap<String, String>,
 }
 
 impl Default for Settings {
@@ -87,6 +94,9 @@ impl Default for Settings {
             update_server: String::new(),
             update_check: true,
             update_skip: String::new(),
+            ssh_key_path: String::new(),
+            zoom: 1.0,
+            ui_state: HashMap::new(),
         }
     }
 }

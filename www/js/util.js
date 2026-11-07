@@ -145,6 +145,8 @@ export function icon(name, cls = '') {
 // ── toast ──
 export function toast(msg, kind = 'info', ms) {
   const box = document.getElementById('toasts');
+  // the same message again (e.g. a failing pull clicked several times): show it once
+  for (const old of box.children) if (old.textContent === String(msg)) old.remove();
   const t = h('div.toast' + (kind === 'err' ? '.err' : kind === 'ok' ? '.ok' : ''), String(msg));
   box.append(t);
   const life = ms ?? (kind === 'err' ? 9000 : 3500);
@@ -166,11 +168,14 @@ export function modal({ title, body, buttons, wide, onOpen }) {
         on: { click: () => close(typeof b.value === 'function' ? b.value() : b.value) },
       }, b.label));
     }
-    const m = h('div.modal' + (wide ? '.wide' : ''), h('div.modal-h', title), h('div.modal-b', body), foot);
+    const m = h('div.modal' + (wide ? '.wide' : ''), h('div.modal-h', title), h('div.modal-b', body), foot,
+      h('button.modal-x', { type: 'button', title: t('Bezárás'), on: { click: () => close(null) } }, icon('close')));
     ov.append(m);
-    ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(null); });
+    // a dialog closes only with its own buttons: no Escape, no click beside it
     function onKey(e) {
-      if (e.key === 'Escape') { e.stopPropagation(); close(null); }
+      // dialogs can be stacked (e.g. a question over Settings): only the top one listens
+      if ([...document.querySelectorAll('.overlay')].pop() !== ov) return;
+      if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); }
       if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) {
         const prim = (buttons || []).find((b) => b.primary);
         if (prim) { e.preventDefault(); e.stopPropagation(); close(typeof prim.value === 'function' ? prim.value() : prim.value); }
@@ -346,6 +351,34 @@ export function contextMenu(e, items) {
   openMenu = m;
 }
 
+/**
+ * Our own Cut/Copy/Paste menu instead of the browser's (Back, Reload,
+ * Inspect…), for text fields and selected text. Returns false when there is
+ * nothing to offer.
+ */
+export function editMenu(e) {
+  const el = e.target.closest('input,textarea');
+  const field = el && !el.readOnly && !el.disabled && (el.tagName === 'TEXTAREA' || /^(text|search|password|url|email|number|)$/.test(el.type || '')) ? el : null;
+  const selText = field ? field.value.slice(field.selectionStart ?? 0, field.selectionEnd ?? 0) : String(getSelection() || '');
+  if (!field && !selText) return false;
+  const pw = field?.type === 'password';
+  const paste = async () => {
+    field.focus();
+    try {
+      const txt = await navigator.clipboard.readText();
+      if (!document.execCommand('insertText', false, txt)) field.setRangeText(txt, field.selectionStart, field.selectionEnd, 'end');
+    } catch { document.execCommand('paste'); }
+  };
+  contextMenu(e, [
+    field ? { label: t('Kivágás'), disabled: !selText || pw, action: () => { field.focus(); document.execCommand('cut'); } } : null,
+    { label: t('Másolás'), icon: 'copy', disabled: !selText || pw, action: () => navigator.clipboard.writeText(selText).catch(() => document.execCommand('copy')) },
+    field ? { label: t('Beillesztés'), action: paste } : null,
+    '-',
+    { label: t('Összes kijelölése'), action: () => { if (field) { field.focus(); field.select(); } else getSelection().selectAllChildren(e.target.closest('.diff-scroll,.ai-body,.cmeta,.console-out') || e.target); } },
+  ]);
+  return true;
+}
+
 // ── time / people ──
 export function relTime(ts) {
   const d = Date.now() / 1000 - ts;
@@ -377,6 +410,31 @@ export const short = (hash) => (hash || '').slice(0, 8);
 export const basename = (p) => p.replace(/\\/g, '/').split('/').pop();
 export const dirname = (p) => { const s = p.replace(/\\/g, '/'); const i = s.lastIndexOf('/'); return i < 0 ? '' : s.slice(0, i + 1); };
 
+// ── UI state (panel sizes, last folders) ──
+// Kept in settings.json by the backend: the WebView's localStorage is not
+// always written to disk when the app quits, so sizes were sometimes lost.
+let uiState = {};
+let uiSave = () => {};
+export function initUiState(obj, save) {
+  uiState = obj;
+  uiSave = save;
+  // one-time move of the values the earlier versions kept in localStorage
+  let moved = false;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith('gs.') && !(k in uiState)) { uiState[k] = localStorage.getItem(k); moved = true; }
+    }
+  } catch { /* no localStorage */ }
+  if (moved) uiSave();
+}
+export const uiGet = (k) => uiState[k] ?? null;
+export function uiSet(k, v) {
+  if (uiState[k] === String(v)) return;
+  uiState[k] = String(v);
+  uiSave();
+}
+
 // ── splitters ──
 export function splitter(el, target, { vertical = true, min = 100, max = 2000, invert = false, key } = {}) {
   el.addEventListener('mousedown', (e) => {
@@ -394,12 +452,12 @@ export function splitter(el, target, { vertical = true, min = 100, max = 2000, i
       el.classList.remove('drag');
       removeEventListener('mousemove', move);
       removeEventListener('mouseup', up);
-      if (key) localStorage.setItem(key, vertical ? target.style.width : target.style.height);
+      if (key) uiSet(key, vertical ? target.style.width : target.style.height);
     };
     addEventListener('mousemove', move);
     addEventListener('mouseup', up);
   });
-  if (key && localStorage.getItem(key)) { target.style[vertical ? 'width' : 'height'] = localStorage.getItem(key); target.style.flex = 'none'; }
+  if (key && uiGet(key)) { target.style[vertical ? 'width' : 'height'] = uiGet(key); target.style.flex = 'none'; }
 }
 
 // ── markdown (small, safe subset) ──
