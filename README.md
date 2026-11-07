@@ -60,7 +60,36 @@ gh workflow run build.yml --ref main
 | macOS Intel (x64) | `.dmg` |
 | Linux x64 | `.deb`, `.rpm`, `.AppImage` |
 
-Download the installers from the workflow run's **Artifacts** section, then upload them with their original names to the update folder (see **Self-update**).
+Download the installers from the workflow run's **Artifacts** section, or publish them with
+**Actions → Publish → Run workflow**. Enter the successful **Build installers** run ID (the
+number in its `/actions/runs/…` URL). The workflow extracts the `GitStar-*` artifacts and uploads
+the installers with their original names, plus `readme.txt`, `whatsnew.txt`, and `LICENSE`, to
+`/www/downloads/GitStar/` on `ftpx.forpsi.com`. It uses explicit FTPS with certificate validation,
+checks uploaded file sizes, then removes older GitStar installers from that folder.
+The newly uploaded release, newer releases, documentation and unrelated files are retained.
+If any upload or size verification fails, cleanup does not run.
+
+Set the repository Actions secret **FTP_PASSWORD** for the `www.c64va.pro` FTP account before
+publishing. The workflow rejects failed or unrelated build runs and missing installation-guide
+files. No password is stored in the repository. A manually dispatched workflow must exist on
+the default branch to appear in the Actions UI; select `develop` in **Use workflow from** when
+publishing from that branch.
+
+**Forpsi country/IP access:** the FTP account must allow the publishing runner's origin.
+The observed GitHub-hosted runners were rejected as `DENY CZ HU [US, United States]`
+while Hungarian connections were allowed. In the Forpsi administration, open
+**Web hosting → c64va.pro → FTP → Restrict FTP access**, inspect the FTP log, and allow
+**US / United States** for these hosted runners. Save the setting before retrying Publish.
+This is an account setting, shared with SID Studio, not a different username or password.
+A `530 Login authentication failed` can also mean a country/IP denial; the script reports
+the failing operation and server reply with secrets redacted. See
+[Forpsi's FTP access settings](https://support.forpsi.hu/kb/a825/specialis-beallitasok-ftp-hozzafereshez.aspx).
+
+Publish helper checks (no FTP connection required):
+
+```bash
+python3 -m unittest discover -s tests -p 'publish_artifacts_test.py'
+```
 
 On macOS the app is not signed by Apple, so Gatekeeper may say that GitStar "is damaged and can't be opened". After copying the app to Applications, remove the quarantine flag in Terminal:
 
