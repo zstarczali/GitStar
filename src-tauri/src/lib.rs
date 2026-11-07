@@ -1,6 +1,7 @@
 mod ai;
 mod commands;
 mod git;
+mod clone_plan;
 mod remote_auth;
 mod process;
 mod graph;
@@ -93,6 +94,7 @@ pub fn run() {
             commands::open_repo,
             commands::init_repo,
             commands::clone_repo,
+            commands::clone_plan,
             commands::status,
             commands::refs,
             commands::log,

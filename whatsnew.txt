@@ -3,6 +3,16 @@ GitStar - What's new
 
 1.0.2
 -----
+- Clone dialog: parent-folder picker, SSH/HTTPS selection for GitHub,
+  repository-name inference, Fill paths from repository button and live
+  clone URL/destination preview. Custom URLs can be kept unchanged.
+- Settings > Git > Git root folder sets the default parent for clones.
+- Fix clone destinations on macOS/Linux: paths are joined natively
+  instead of inserting a Windows backslash. Validate folder names before
+  cloning and separate Git clone options from the supplied URL.
+- Disabled dialog actions also remain disabled when Enter is pressed.
+- Updated README and installation guide with SID-Studio clone example.
+
 - Per-remote SSH / HTTPS selector in Settings > Authentication and the
   remote context menu. Shows current Fetch/Push URLs and previews changes.
   Converts standard github.com URLs while preserving distinct push targets;

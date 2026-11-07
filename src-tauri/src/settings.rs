@@ -23,6 +23,8 @@ pub fn tr(hu: &str, en: &str) -> String {
 pub struct Settings {
     /// Path of git.exe; empty = "git" from PATH.
     pub git_path: String,
+    /// Default parent directory for cloned repositories.
+    pub git_root_path: String,
     /// "dark" | "light" | "system"
     pub theme: String,
     /// "auto" | "hu" | "en"
@@ -70,6 +72,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             git_path: String::new(),
+            git_root_path: String::new(),
             theme: "dark".into(),
             ui_language: "auto".into(),
             ai_provider: "anthropic".into(),

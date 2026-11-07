@@ -109,6 +109,7 @@ When a diff exceeds 600,000 characters for Claude or 300,000 for DeepSeek, GitSt
 
 ```text
 src-tauri/src/
+  clone_plan.rs   Clone URL, folder-name validation and native destination paths
   remote_auth.rs  Per-remote SSH / HTTPS conversion and validation
   process.rs    Network process supervision and idle timeout
   ssh.rs        SSH key selection, generation and connection tests
@@ -172,3 +173,32 @@ key test establishes your identity, but access to each repository also depends
 on that account's permissions. **HTTPS** uses saved Git credentials; an SSH
 key cannot authenticate an HTTPS remote. This selector chooses the protocol;
 it does not create an HTTPS login or token.
+
+## Cloning a GitHub repository
+
+Set **Settings → Git → Git root folder** with **Browse** to choose the default
+parent for new clones. Existing repositories stay in place. Open **Clone**,
+paste a repository URL, and select the connection method:
+
+- **SSH (GitHub)** uses the selected SSH key/agent and converts a standard
+  GitHub HTTPS link to SSH. This is initially selected when an SSH key is set.
+- **HTTPS (GitHub)** uses saved Git credentials.
+- **Use the supplied URL** preserves custom hosts, SSH aliases and local paths.
+
+The parent folder has a **Browse** button. The repository folder name is
+inferred from the URL and can be edited. **Fill paths from repository** resets
+the folder name from the URL and restores the default parent (Git root, last
+clone parent, or the active repository's parent). The preview shows both the
+actual clone URL and the complete destination; Clone is enabled only when the
+plan is valid. Paths are joined natively on macOS, Linux and Windows.
+
+For example, with Git root `/Users/zsolt/Dev`, the link
+`https://github.com/zstarczali/SID-Studio.git` and **SSH (GitHub)** produce:
+
+```text
+Clone URL: git@github.com:zstarczali/SID-Studio.git
+Destination: /Users/zsolt/Dev/SID-Studio
+```
+
+Cloning over HTTPS does not use your SSH key. A missing or invalid GitHub
+credential must be configured separately; switching to SSH uses your SSH setup.

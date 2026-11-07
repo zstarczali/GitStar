@@ -38,7 +38,7 @@ fn github_path(url: &str) -> Option<String> {
     }
     Some(path.to_string())
 }
-fn convert(url: &str, mode: &str) -> Result<String, String> {
+pub(crate) fn convert(url: &str, mode: &str) -> Result<String, String> {
     let path = github_path(url).ok_or_else(|| tr("Az automatikus váltás csak szokásos github.com remote-címekhez használható. Egyéb címnél használd az URL módosítása menüt.", "Automatic switching supports standard github.com remote URLs. For other addresses, use Change URL."))?;
     match mode {
         "ssh" => Ok(format!("git@github.com:{path}")),

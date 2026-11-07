@@ -108,7 +108,7 @@ pub async fn clone_repo(state: State<'_, AppState>, url: String, dest: String) -
             std::fs::create_dir_all(&parent).map_err(|e| e.to_string())?;
         }
         let cwd = if parent.is_empty() { ".".to_string() } else { parent };
-        git.run_op(&cwd, &["clone", "--progress", &url, &dest])?;
+        git.run_op(&cwd, &["clone", "--progress", "--", &url, &dest])?;
         repo_info(&git, &dest)
     })
     .await
@@ -1493,4 +1493,9 @@ pub async fn remote_auth_info(state: State<'_, AppState>, repo: String, remote: 
 pub async fn set_remote_auth(state: State<'_, AppState>, repo: String, remote: String, mode: String) -> Result<(), String> {
     let git = state.git();
     blocking(move || crate::remote_auth::set(&git, &repo, &remote, &mode)).await
+}
+
+#[tauri::command]
+pub fn clone_plan(url: String, parent: String, name: String, mode: String) -> Result<crate::clone_plan::ClonePlan, String> {
+    crate::clone_plan::plan(&url, &parent, &name, &mode)
 }

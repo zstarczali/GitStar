@@ -178,7 +178,7 @@ export function modal({ title, body, buttons, wide, onOpen }) {
       if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); }
       if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) {
         const prim = (buttons || []).find((b) => b.primary);
-        if (prim) { e.preventDefault(); e.stopPropagation(); close(typeof prim.value === 'function' ? prim.value() : prim.value); }
+        if (prim) { e.preventDefault(); e.stopPropagation(); if (foot.querySelector('.primary')?.disabled) return; close(typeof prim.value === 'function' ? prim.value() : prim.value); }
       }
     }
     document.addEventListener('keydown', onKey, true);
