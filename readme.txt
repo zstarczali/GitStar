@@ -41,6 +41,20 @@ macOS Apple Silicon (ARM64) and Intel (x64)
    the first launch attempt, open System Settings > Privacy & Security,
    choose "Open Anyway" if available, and confirm.
    Apple guide: https://support.apple.com/en-ie/102445
+5. If macOS says that "GitStar is damaged and can't be opened", or
+   "Open Anyway" does not appear, remove the quarantine flag that macOS
+   puts on downloaded files. The app is not signed by Apple, so macOS
+   blocks it. Run this in Terminal after copying the app to
+   Applications:
+
+     xattr -dr com.apple.quarantine /Applications/GitStar.app
+
+   If it still does not open, clear all extended attributes:
+
+     xattr -cr /Applications/GitStar.app
+
+   Then open GitStar from Applications again. Repeat this after
+   installing a new version, including one installed by the self-update.
 
 Linux x64
 ---------
