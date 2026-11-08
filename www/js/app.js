@@ -650,7 +650,9 @@ function commitBox(r) {
       authorTxt.textContent = id.name || id.email ? t('Szerző: {0}', `${id.name} <${id.email}>`) : t('Szerző: nincs beállítva (Beállítások → Git)');
     } catch { authorTxt.textContent = t('Szerző frissítése'); }
   };
+  const otherBtn = h('button.btn', { title: t('Commit másik ágra… (ha rossz ágon dolgoztál)'), on: { click: () => commitToBranchDlg(r) } }, icon('branch'), t('Másik ágra…'));
   const updBtn = () => {
+    otherBtn.disabled = !n || r.amend || !!st.operation;
     commitBtn.disabled = !n && !r.amend && st.operation !== 'merge';
     commitBtn.replaceChildren(icon('check'), (r.amend ? 'Amend' : 'Commit') + (n ? ` (${n})` : ''));
     commitBtn.title = r.amend ? t('Az utolsó commit módosítása (üzenet és a staged változások)') : '';
@@ -690,7 +692,7 @@ function commitBox(r) {
   } } }, icon('sparkle'), t('AI üzenet'));
   return h('div.commit-box',
     ta,
-    h('div.row', h('label.chk', { title: t('Az utolsó commit módosítása') }, amend, 'Amend'), hint, h('span.grow'), aiBtn, commitBtn),
+    h('div.row', h('label.chk', { title: t('Az utolsó commit módosítása') }, amend, 'Amend'), hint, h('span.grow'), aiBtn, otherBtn, commitBtn),
     resetLbl,
     !n && st.unstaged.length ? h('div.hint', t('Nincs staged fájl. Dupla kattintás vagy a + gomb egy fájlon stage-eli.')) : null);
 }
@@ -716,6 +718,57 @@ async function doCommit(r) {
     setBusy(false);
     await refreshAll(r);
   }
+}
+
+/**
+ * Moves the uncommitted changes to another (new or existing) branch and commits
+ * the staged part there — for when the work was done on the wrong branch.
+ * Existing branch: plain checkout carries the changes when they do not clash;
+ * otherwise stash → checkout → stash pop --index (the stash is kept on conflict).
+ */
+async function commitToBranchDlg(r) {
+  const msg = r.commitMsg.trim();
+  if (!msg) { toast(t('Írj commit üzenetet (vagy kérj egyet az AI-tól).'), 'err'); return; }
+  if (!r.status.staged.length) { toast(t('Nincs staged változás.'), 'err'); return; }
+  const orig = r.refs?.head || null;
+  const locals = (r.refs?.local || []).map((b) => b.name).filter((b) => b !== orig);
+  const v = await formDlg(t('Commit másik ágra'), [
+    { name: 'branch', label: t('Cél ág (meglévő vagy új név)'), type: 'combo', value: '', options: locals, placeholder: 'feature/uj-funkcio' },
+    ...(orig ? [{ name: 'back', label: t('Utána vissza erre: {0}', orig), type: 'checkbox', value: false }] : []),
+  ], 'Commit', t('A nem commitolt változások átkerülnek a cél ágra, és a staged fájlok ott lesznek commitolva. Az eredeti ág nem változik.'));
+  if (!v) return;
+  const target = (v.branch || '').trim().replace(/\s+/g, '-');
+  if (!target) return;
+  if (target === orig) { await doCommit(r); return; }
+  const exists = (r.refs?.local || []).some((b) => b.name === target);
+  const git = (args) => invoke('git_op', { repo: r.path, args }).then((out) => { consoleLog(r, args, out, false); return out; },
+    (e) => { consoleLog(r, args, String(e), true); throw e; });
+  setBusy(true, t('Áthelyezés: {0}', target));
+  try {
+    if (!exists) await git(['checkout', '-b', target]);
+    else {
+      try { await git(['checkout', target]); }
+      catch {
+        // the changes clash with the target branch: carry them over in a stash
+        await git(['stash', 'push', '-u', '-m', `GitStar: commit to ${target}`]);
+        try { await git(['checkout', target]); }
+        catch (e) { await git(['stash', 'pop', '--index']).catch(() => {}); throw e; }
+        try { await git(['stash', 'pop', '--index']); }
+        catch (e) {
+          throw t('A változások nem alkalmazhatók tisztán a(z) {0} ágon (ütközés). A stash megmaradt; oldd fel az ütközést, majd commitolj.\n{1}', target, e);
+        }
+      }
+    }
+  } catch (e) {
+    toast(t('Áthelyezés sikertelen:\n') + e, 'err', 10000);
+    setBusy(false);
+    await refreshAll(r);
+    return;
+  }
+  setBusy(false);
+  await refreshAll(r);
+  await doCommit(r);
+  if (v.back && orig && !r.commitMsg) await op(`Checkout ${orig}`, ['checkout', orig]);
 }
 
 async function stagePaths(paths) {
@@ -1862,9 +1915,13 @@ async function settingsDlg() {
     const p = await pickFolder(t('Git gyökérmappa'), gitRoot.value || undefined);
     if (p) gitRoot.value = p;
   };
-  const gitVer = h('span.note', '');
+  const gitVer = h('span.note.git-ver', ' ');
   const gitInp = h('input.inp', { value: s.git_path, placeholder: t('git (a PATH-ból) vagy C:\\Program Files\\Git\\cmd\\git.exe'), spellcheck: 'false' });
-  const testGit = async () => { try { gitVer.textContent = '✓ ' + (await invoke('git_version', { path: gitInp.value || 'git' })); } catch (e) { gitVer.textContent = '✗ ' + e; } };
+  // fixed-height line (.git-ver) so the dialog does not jump when the result arrives
+  const testGit = async () => {
+    try { gitVer.textContent = '✓ ' + (await invoke('git_version', { path: gitInp.value || 'git' })); } catch (e) { gitVer.textContent = '✗ ' + e; }
+    gitVer.title = gitVer.textContent;
+  };
   testGit();
   const modelSel = sel([...models.map((m) => [m, m]), ['custom', t('Egyéb…')]], models.includes(s.ai_model) ? s.ai_model : 'custom');
   const customModel = h('input.inp', { value: models.includes(s.ai_model) ? '' : s.ai_model, placeholder: 'model id', style: { display: models.includes(s.ai_model) ? 'none' : '' } });
@@ -1916,7 +1973,7 @@ async function settingsDlg() {
   } } }, t('Teszt'));
   providerSel.addEventListener('change', () => { aiTestOut.textContent = ''; });
   const updCheck = h('input', { type: 'checkbox', checked: s.update_check !== false });
-  const updServer = h('input.inp', { value: s.update_server || '', placeholder: 'https://www.c64va.pro/downloads/GitStar/', spellcheck: 'false' });
+  const updServer = h('input.inp', { value: s.update_server || '', placeholder: 'https://www.c64va.pro/', spellcheck: 'false' });
   // checks the address, saves it, then looks for a new version there
   const saveUpdServer = async () => {
     try { await invoke('update_server_check', { url: updServer.value }); }
@@ -1969,8 +2026,8 @@ async function settingsDlg() {
     finally { sshTestBtn.disabled = false; }
   } } }, t('Kapcsolat teszt'));
   const row = (...kids) => h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, ...kids);
-  const body = h('div.settings-grid',
-    h('div.settings-sec', 'Git'),
+  const tabs = [
+    ['git', 'Git', h('div.settings-grid',
     h('label.field.full', h('span', t('git.exe útvonala')), h('div', { style: { display: 'flex', gap: '6px' } }, gitInp,
       h('button.btn', { on: { click: async () => {
         try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: t('git.exe kiválasztása'), ...(/Windows/i.test(navigator.userAgent) ? { filters: [{ name: 'git', extensions: ['exe'] }] } : {}) } }); if (p) { gitInp.value = p; testGit(); } } catch (e) { toast(e, 'err'); }
@@ -1983,8 +2040,8 @@ async function settingsDlg() {
     h('div.note.full', t('A név és az email a globális git beállításba kerül (git config --global), minden repóra érvényes, ahol nincs saját beállítás.')),
     fld('pull_mode', t('Pull gomb módja'), sel([['merge', 'Merge'], ['rebase', 'Rebase'], ['ff', t('Csak fast-forward')], ['ask', t('Mindig kérdezzen')]], s.pull_mode || 'merge'),
       t('Shift+kattintás vagy jobb klikk a Pull gombon mindig megnyitja a párbeszédablakot.')),
-    fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
-    h('div'),
+    fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })))],
+    ['ssh', t('SSH / Hitelesítés'), h('div.settings-grid',
     h('div.settings-sec', t('Hitelesítés')),
     h('div.field.full', h('span.note', t('A beállított SSH-kulcs csak SSH-címekhez használható. Válassz kapcsolatot tárolónként:')),
       ...(cur()?.refs?.remotes || []).map((rm) => h('button.btn', { on: { click: () => remoteAuthDlg(cur(), rm.name) } }, `${rm.name}: SSH / HTTPS…`))),
@@ -1996,27 +2053,37 @@ async function settingsDlg() {
       row(h('button.btn', { on: { click: sshCopy } }, icon('copy'), t('Publikus kulcs másolása')),
         h('button.btn', { on: { click: () => invoke('open_url', { url: 'https://github.com/settings/ssh/new' }).catch((e) => toast(e, 'err')) } }, t('GitHub: új SSH kulcs')),
         h('span.grow', { style: { flex: '1' } }), sshHost, sshTestBtn),
-      sshOut),
-    h('div.settings-sec', t('Megjelenés')),
+      sshOut))],
+    ['look', t('Megjelenés'), h('div.settings-grid',
     fld('ui_language', t('Felület nyelve'), sel([['auto', t('Automatikus (rendszer)')], ['hu', 'Magyar'], ['en', 'English']], s.ui_language || 'auto')),
     h('div'),
     fld('theme', t('Téma'), sel([['dark', t('Sötét')], ['light', t('Világos')], ['ai', 'AI (neon)'], ['retro', t('Retró (8 bites)')], ['modern', t('Modern (üveg)')], ['modern-dark', t('Modern sötét (üveg)')], ['system', t('Rendszer szerint')]], s.theme)),
     fld('font_size', t('Betűméret'), h('input.inp', { type: 'number', min: 10, max: 20, value: s.font_size })),
     fld('zoom', t('Nagyítás'), sel(ZOOMS.map((z) => [String(z), Math.round(z * 100) + '%']), String(ZOOMS.includes(zoomNow()) ? zoomNow() : 1)),
-      t('Gyorsan: Ctrl + / Ctrl − / Ctrl 0, vagy Ctrl + egérgörgő.')),
-    h('div'),
-    h('div.settings-sec', 'AI'),
+      t('Gyorsan: Ctrl + / Ctrl − / Ctrl 0, vagy Ctrl + egérgörgő.')))],
+    ['ai', 'AI', h('div.settings-grid',
     h('label.field.full', h('span', t('AI szolgáltató')), h('div', { style: { display: 'flex', gap: '6px' } }, providerSel, aiTestBtn), aiTestOut),
     claudeBox,
     dsBox,
     fld('ai_language', t('AI szövegek nyelve'), sel([['hu', t('Magyar')], ['en', 'English']], s.ai_language)),
-    h('div.settings-sec', t('Frissítés')),
+    fld('commit_style', t('Commit üzenet stílus'), sel([['conventional', 'Conventional Commits (feat: …)'], ['simple', t('Egyszerű, egy sor')], ['detailed', t('Részletes, felsorolással')]], s.commit_style), null, true))],
+    ['update', t('Frissítés'), h('div.settings-grid',
     h('label.chk.full', updCheck, t('Új verzió keresése induláskor')),
-    h('label.field.full', h('span', t('Letöltési mappa címe')), h('div', { style: { display: 'flex', gap: '6px' } }, updServer,
+    h('label.field.full', h('span', t('Frissítési szerver')), h('div', { style: { display: 'flex', gap: '6px' } }, updServer,
       h('button.btn', { on: { click: () => saveUpdServer() } }, t('Keresés most'))),
-      h('span.note', t('Itt keresi a GitStar a telepítőket (pl. GitStar_0.3.0_x64-setup.exe). Üres = alapértelmezett.'))),
-    fld('commit_style', t('Commit üzenet stílus'), sel([['conventional', 'Conventional Commits (feat: …)'], ['simple', t('Egyszerű, egy sor')], ['detailed', t('Részletes, felsorolással')]], s.commit_style), null, true),
-  );
+      h('span.note', t('Elég a szerver címe (pl. https://www.c64va.pro/), a GitStar a downloads/GitStar/ mappában keresi a telepítőket. Más mappához add meg a teljes címét. Üres = alapértelmezett.'))))],
+  ];
+  // every pane sits in the same grid cell, so the dialog keeps the height of
+  // the tallest one and does not jump when switching tabs
+  const tabBtns = tabs.map(([id, label]) => h('button.stab', { type: 'button', 'data-label': label, on: { click: () => showTab(id) } }, label));
+  const panes = h('div.settings-panes', ...tabs.map(([, , el]) => el));
+  const showTab = (id) => {
+    if (!tabs.some((x) => x[0] === id)) id = 'git';
+    tabs.forEach(([tid, , el], i) => { el.classList.toggle('on', tid === id); tabBtns[i].classList.toggle('on', tid === id); });
+    uiSet('gs.settingsTab', id);
+  };
+  showTab(uiGet('gs.settingsTab') || 'git');
+  const body = h('div.settings', h('div.settings-tabs', ...tabBtns), panes);
   const ok = await modal({ title: t('Beállítások'), body, wide: true, buttons: [{ label: t('Mégse'), value: false }, { label: t('Mentés'), value: true, primary: true }] });
   if (!ok) return;
   Object.assign(S.settings, {

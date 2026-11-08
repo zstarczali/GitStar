@@ -1,11 +1,12 @@
 GitStar Installation Guide
 ==========================
 
-Version 1.0.2
+Version 1.0.3
 -------------
-Choose SSH or HTTPS per GitHub remote in Settings > Authentication.
-This release also fixes hidden credential prompts and idle network
-operations. See the authentication and troubleshooting sections below.
+Settings is now split into tabs (Git, SSH / Authentication, Appearance,
+AI, Update). Changes made on the wrong branch can be committed to another
+branch from the commit box ("Other branch..."). For the update server,
+the server address is enough (https://www.c64va.pro/).
 
 The main-window Donate button appears after 10 minutes of foreground
 use. The timer pauses while the window is unfocused or hidden and
