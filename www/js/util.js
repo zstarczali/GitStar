@@ -365,7 +365,8 @@ export function editMenu(e) {
   const paste = async () => {
     field.focus();
     try {
-      const txt = await navigator.clipboard.readText();
+      // from the backend: navigator.clipboard.readText() makes the WebView ask for permission
+      const txt = await invoke('clipboard_text');
       if (!document.execCommand('insertText', false, txt)) field.setRangeText(txt, field.selectionStart, field.selectionEnd, 'end');
     } catch { document.execCommand('paste'); }
   };
