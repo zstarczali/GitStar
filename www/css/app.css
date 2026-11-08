@@ -946,3 +946,7 @@ svg.i.rot { transform: rotate(-90deg); }
 [data-theme="modern-dark"] .overlay { background: rgba(4, 4, 12, 0.45); backdrop-filter: blur(3px); }
 [data-theme="modern-dark"] .modal-h { font-size: 16px; font-weight: 700; letter-spacing: -0.2px; }
 [data-theme="modern-dark"] .welcome h1 { background: linear-gradient(135deg, #9d8cff, #e08cff); -webkit-background-clip: text; background-clip: text; color: transparent; letter-spacing: -0.5px; }
+
+/* About: website link */
+.about-info a.about-link { color: var(--accent); cursor: pointer; text-decoration: none; }
+.about-info a.about-link:hover { text-decoration: underline; }

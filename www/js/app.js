@@ -1808,6 +1808,7 @@ async function initDlg() {
 // ── about ──
 // Donation: the PayPal page of the product site (same as the Visual Assembler's), in the UI language.
 const DONATE_URL = 'https://www.c64va.pro/register/donate.php';
+const SITE_URL = 'https://www.c64va.pro/gitstar.html';
 function startDonationTimer() {
   let remaining = 10 * 60 * 1000;
   let started = null;
@@ -1862,7 +1863,8 @@ async function aboutDlg() {
       h('div.about-ver', `v${info.version || '?'}`),
       h('div.about-tag', t('Git kliens AI commit üzenetekkel és vizuális diff-fel.'))),
     h('div.about-feats', features.map(([ic, l]) => h('span.about-feat', icon(ic), l))),
-    h('div.about-info', rows.map(([k, v]) => [h('span.k', k), h('span.v', { title: v }, v)])),
+    h('div.about-info', rows.map(([k, v]) => [h('span.k', k), h('span.v', { title: v }, v)]),
+      h('span.k', t('Weboldal')), h('span.v', h('a.about-link', { title: SITE_URL, on: { click: () => invoke('open_url', { url: SITE_URL }).catch((e) => toast(String(e), 'err')) } }, SITE_URL.replace(/^https:\/\//, '')))),
     h('div.about-foot', t('Rust + Tauri 2, a git műveleteket a git.exe végzi. AI: Anthropic Claude (API vagy Claude Code CLI) vagy DeepSeek.')),
     h('div.about-free', t('A GitStar ingyenes (freeware). Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést. Köszönöm!')),
     h('div.about-copy', '© 2026 Zsolt Tarczali'));
