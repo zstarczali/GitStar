@@ -18,8 +18,13 @@ use tauri::{AppHandle, Emitter, State};
 /// Folder holding the installers; changeable in Settings (`update_server`).
 pub const UPDATE_SERVER_DEFAULT: &str = "https://www.c64va.pro/downloads/GitStar/";
 
+/// Installer folder on the server, added when only the server address is given.
+const UPDATE_DIR: &str = "downloads/GitStar/";
+
 /// The update folder's address checked, ending in `/`: https, or http only for
-/// localhost (local test); no user name, query or fragment.
+/// localhost (local test); no user name, query or fragment. A bare server
+/// address (`https://www.c64va.pro/`) gets the standard folder appended; a
+/// longer path is taken as the folder itself.
 pub fn normalize_update_server(raw: &str) -> Result<String, String> {
     let raw = raw.trim();
     if raw.is_empty() {
@@ -36,6 +41,9 @@ pub fn normalize_update_server(raw: &str) -> Result<String, String> {
     let mut s = url.to_string();
     if !s.ends_with('/') {
         s.push('/');
+    }
+    if url.path() == "/" {
+        s.push_str(UPDATE_DIR);
     }
     Ok(s)
 }
@@ -350,6 +358,9 @@ mod tests {
     fn update_server_must_be_https() {
         assert_eq!(normalize_update_server("").unwrap(), UPDATE_SERVER_DEFAULT);
         assert_eq!(normalize_update_server("https://example.com/dl").unwrap(), "https://example.com/dl/");
+        assert_eq!(normalize_update_server("https://www.c64va.pro/").unwrap(), UPDATE_SERVER_DEFAULT);
+        assert_eq!(normalize_update_server("https://www.c64va.pro").unwrap(), UPDATE_SERVER_DEFAULT);
+        assert_eq!(normalize_update_server(UPDATE_SERVER_DEFAULT).unwrap(), UPDATE_SERVER_DEFAULT);
         assert!(normalize_update_server("http://example.com/").is_err());
         assert!(normalize_update_server("http://localhost:8080/").is_ok());
         assert!(normalize_update_server("https://u:p@example.com/").is_err());

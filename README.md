@@ -6,7 +6,7 @@
 
 GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style interface. It runs Git operations through the installed Git executable, so hooks, credential helpers, Git LFS, and Git configuration work as they do on the command line.
 
-Current version **1.0.2**. The main-window Donate button appears after 10 minutes of foreground use. Time spent with the window unfocused or hidden pauses the timer, which resets each time GitStar starts. Donations are also available from the About dialog.
+Current version **1.0.3**. The main-window Donate button appears after 10 minutes of foreground use. Time spent with the window unfocused or hidden pauses the timer, which resets each time GitStar starts. Donations are also available from the About dialog.
 
 See [What's new](whatsnew.txt) for the release history.
 
@@ -26,7 +26,7 @@ See [What's new](whatsnew.txt) for the release history.
 - **In-progress operations** — Continue, skip, or abort a merge, rebase, cherry-pick, or revert where Git supports it. Resolve conflicts using ours, theirs, or manual edits.
 - **Git console** — Run Git commands with command history and view output from app operations.
 - **Themes and layout** — Choose dark, light, AI neon, retro, modern, modern dark, or system themes, adjust the font size, and resize panels. The neon theme includes gradients, animated lines, and custom icons; the retro theme looks like an 8-bit home computer on a CRT (monospace font, scanlines, striped toolbar, blinking cursor); the modern theme is light frosted glass on a soft pastel gradient (rounded controls, gradient buttons, pill toggles), and modern dark is the same glass look on a deep aurora gradient.
-- **Self-update** — GitStar looks for a newer installer at startup (and from **About → Check for updates**). It reads the download folder set in Settings (default `https://www.c64va.pro/downloads/GitStar/`), downloads the installer for the platform with a progress bar, runs it, and restarts. Upload the installers from the GitHub Actions build there with their original names, such as `GitStar_0.3.0_x64-setup.exe`.
+- **Self-update** — GitStar looks for a newer installer at startup (and from **About → Check for updates**). It reads the update server set in Settings (default `https://www.c64va.pro/`; a bare server address means its `downloads/GitStar/` folder, a longer address is used as the folder itself), downloads the installer for the platform with a progress bar, runs it, and restarts. Upload the installers from the GitHub Actions build there with their original names, such as `GitStar_0.3.0_x64-setup.exe`.
 - **English and Hungarian** — Set the interface language to automatic, Hungarian, or English in Settings. Backend errors use the selected language.
 
 ## Running from source

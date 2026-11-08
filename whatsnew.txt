@@ -1,6 +1,23 @@
 GitStar - What's new
 ====================
 
+1.0.3
+-----
+- Settings dialog split into tabs: Git, SSH / Authentication,
+  Appearance, AI and Update. The last used tab is remembered; switching
+  tabs no longer resizes the dialog or shifts the tab row.
+- New "Other branch..." button in the commit box: moves the uncommitted
+  changes to an existing or new branch and commits the staged files there
+  (for work done on the wrong branch). Clashing changes are carried over
+  in a stash (pop --index); on conflict the stash is kept. Optionally
+  switches back to the original branch afterwards.
+- Update server: the bare server address (https://www.c64va.pro/) is
+  enough, the downloads/GitStar/ folder is appended. A full folder
+  address still works.
+- Fix: the AI message button disappeared on hover in the light and
+  retro themes.
+- Fix: the Settings dialog jumped when the Git version check finished.
+
 1.0.2
 -----
 - Clone dialog: parent-folder picker, SSH/HTTPS selection for GitHub,
