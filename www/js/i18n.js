@@ -515,4 +515,5 @@ const EN = {
   'A git ezzel a kulccsal csatlakozik az SSH-s remote-okhoz (git@github.com:…). Üresen hagyva az ssh saját beállítása és az ssh-agent érvényes. Jelszavas kulcsot előbb add hozzá az ssh-agenthez (ssh-add).': 'git uses this key for SSH remotes (git@github.com:…). Empty = ssh\'s own setup and the ssh-agent. Add a key with a passphrase to the ssh-agent first (ssh-add).',
   'Publikus kulcs másolása': 'Copy public key',
   'GitHub: új SSH kulcs': 'GitHub: new SSH key',
+  'Weboldal': 'Website',
 };
