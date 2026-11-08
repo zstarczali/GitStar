@@ -1,12 +1,16 @@
 GitStar Installation Guide
 ==========================
 
-Version 1.0.3
+Version 1.0.4
 -------------
-Settings is now split into tabs (Git, SSH / Authentication, Appearance,
-AI, Update). Changes made on the wrong branch can be committed to another
-branch from the commit box ("Other branch..."). For the update server,
-the server address is enough (https://www.c64va.pro/).
+Paste from the right-click menu no longer asks for permission to read
+the clipboard, and the About dialog links to the website.
+
+Since 1.0.3: Settings is split into tabs (Git, SSH / Authentication,
+Appearance, AI, Update). Changes made on the wrong branch can be
+committed to another branch from the commit box ("Other branch...").
+For the update server, the server address is enough
+(https://www.c64va.pro/).
 
 The main-window Donate button appears after 10 minutes of foreground
 use. The timer pauses while the window is unfocused or hidden and
