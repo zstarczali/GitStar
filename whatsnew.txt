@@ -1,6 +1,13 @@
 GitStar - What's new
 ====================
 
+1.0.4
+-----
+- About: link to the website (www.c64va.pro/gitstar.html).
+- Fix: Paste in the right-click menu of a text field (for example the
+  commit message) asked for permission to read the clipboard. The text
+  is now read by the app itself, without the prompt.
+
 1.0.3
 -----
 - Settings dialog split into tabs: Git, SSH / Authentication,

@@ -132,6 +132,7 @@ pub fn run() {
             commands::ssh_generate_key,
             commands::ssh_test,
             commands::set_zoom,
+            commands::clipboard_text,
             update::check_for_update,
             update::download_and_install_update,
             update::update_server_check,

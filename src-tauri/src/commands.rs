@@ -1455,6 +1455,16 @@ pub fn set_zoom(window: tauri::WebviewWindow, scale: f64) -> Result<(), String> 
     window.set_zoom(scale.clamp(0.5, 3.0)).map_err(|e| e.to_string())
 }
 
+/// Text on the system clipboard, for the Paste item of our context menu.
+/// Read here and not with navigator.clipboard.readText(), which makes the
+/// WebView ask the user for permission.
+#[tauri::command]
+pub fn clipboard_text() -> Result<String, String> {
+    arboard::Clipboard::new()
+        .and_then(|mut c| c.get_text())
+        .map_err(|e| e.to_string())
+}
+
 /// Writes the window size/position to disk now (not only at exit, which is
 /// skipped when the process is ended by the system, an installer or a crash).
 pub fn save_window_state(app: &tauri::AppHandle) {
