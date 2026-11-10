@@ -1,10 +1,14 @@
 GitStar Installation Guide
 ==========================
 
-Version 1.0.4
+Version 1.0.5
 -------------
-Paste from the right-click menu no longer asks for permission to read
-the clipboard, and the About dialog links to the website.
+On macOS the self-update installs the new version and restarts
+GitStar, instead of only opening the downloaded .dmg.
+
+Since 1.0.4: Paste from the right-click menu no longer asks for
+permission to read the clipboard, and the About dialog links to the
+website.
 
 Since 1.0.3: Settings is split into tabs (Git, SSH / Authentication,
 Appearance, AI, Update). Changes made on the wrong branch can be
