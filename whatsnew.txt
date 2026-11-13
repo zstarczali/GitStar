@@ -1,6 +1,15 @@
 GitStar - What's new
 ====================
 
+1.0.6
+-----
+- Fix: a long branch name pushed the toolbar buttons to the right. The
+  repository and branch names are now shortened with "..." and the full
+  name is shown in a tooltip.
+- Fix: "Open" and "Show in Explorer" in the right-click menu of a
+  changed file are greyed out when the file was deleted, instead of
+  failing.
+
 1.0.5
 -----
 - Fix: on macOS the self-update only downloaded and opened the .dmg

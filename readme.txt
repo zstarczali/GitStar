@@ -1,10 +1,14 @@
 GitStar Installation Guide
 ==========================
 
-Version 1.0.5
+Version 1.0.6
 -------------
-On macOS the self-update installs the new version and restarts
-GitStar, instead of only opening the downloaded .dmg.
+A long branch name no longer pushes the toolbar to the right: it is
+shortened, and the full name is shown in a tooltip. "Open" and "Show in
+Explorer" are greyed out for deleted files.
+
+Since 1.0.5: On macOS the self-update installs the new version and
+restarts GitStar, instead of only opening the downloaded .dmg.
 
 Since 1.0.4: Paste from the right-click menu no longer asks for
 permission to read the clipboard, and the About dialog links to the
