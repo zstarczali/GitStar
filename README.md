@@ -4,6 +4,31 @@
 
 <h1 align="center">GitStar</h1>
 
+<!-- badges:start -->
+<p align="center">
+  <a href="https://www.c64va.pro/gitstar.html"><img src="https://img.shields.io/badge/website-c64va.pro-e05d44?style=flat" alt="Website"></a>
+  <a href="https://github.com/zstarczali/GitStar/blob/main/package.json"><img src="https://img.shields.io/github/package-json/v/zstarczali/GitStar/main?label=version&color=4c1" alt="Version"></a>
+  <a href="https://github.com/zstarczali/GitStar/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/zstarczali/GitStar/build.yml?branch=main&label=build" alt="Build"></a>
+  <a href="https://github.com/zstarczali/GitStar/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-freeware-blue" alt="License: Freeware"></a>
+  <a href="https://www.c64va.pro/register/donate.php"><img src="https://img.shields.io/badge/donate-PayPal-00457C?logo=paypal&logoColor=white" alt="Donate"></a>
+</p>
+<p align="center">
+  <a href="https://v2.tauri.app/"><img src="https://img.shields.io/badge/Tauri-2-24C8D8?logo=tauri&logoColor=white" alt="Tauri 2"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-backend-B7410E?logo=rust&logoColor=white" alt="Rust"></a>
+  <a href="https://www.c64va.pro/gitstar.html"><img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-555" alt="Platforms"></a>
+  <a href="https://github.com/zstarczali/GitStar/commits/main"><img src="https://img.shields.io/github/last-commit/zstarczali/GitStar/main" alt="Last commit"></a>
+  <a href="https://github.com/zstarczali/GitStar/graphs/commit-activity"><img src="https://img.shields.io/github/commit-activity/m/zstarczali/GitStar" alt="Commit activity"></a>
+  <a href="https://github.com/zstarczali/GitStar/issues"><img src="https://img.shields.io/github/issues/zstarczali/GitStar" alt="Issues"></a>
+  <a href="https://github.com/zstarczali/GitStar/stargazers"><img src="https://img.shields.io/github/stars/zstarczali/GitStar?style=flat" alt="Stars"></a>
+</p>
+<p align="center">
+  <a href="https://github.com/zstarczali/GitStar#readme"><img src="https://img.shields.io/badge/English-ddd" alt="English"></a>
+  <a href="https://github.com/zstarczali/GitStar#readme"><img src="https://img.shields.io/badge/Magyar-ddd" alt="Magyar"></a>
+  <a href="https://github.com/zstarczali/FtpStar"><img src="https://img.shields.io/badge/sibling-FtpStar-8a2be2" alt="FtpStar"></a>
+  <a href="https://github.com/zstarczali/DiffStar"><img src="https://img.shields.io/badge/sibling-DiffStar-8a2be2" alt="DiffStar"></a>
+</p>
+<!-- badges:end -->
+
 GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style interface. It runs Git operations through the installed Git executable, so hooks, credential helpers, Git LFS, and Git configuration work as they do on the command line.
 
 Current version **1.0.7**. The main-window Donate button appears after 10 minutes of foreground use. Time spent with the window unfocused or hidden pauses the timer, which resets each time GitStar starts. Donations are also available from the About dialog.
