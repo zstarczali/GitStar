@@ -288,6 +288,8 @@ select.inp { padding: 4px 6px; }
 .file .stats { margin-left: auto; font-size: 11px; display: flex; gap: 4px; }
 .file .stats .a { color: var(--ok); } .file .stats .d { color: var(--danger); }
 .file .fa { display: none; gap: 2px; }
+.fchk { margin: 0; width: 13px; height: 13px; flex: none; accent-color: var(--accent); cursor: pointer; }
+.pane-h .fchk { margin-right: 2px; }
 .file:hover .fa { display: flex; }
 /* Hover buttons must fit in the fixed row height, otherwise the rows below jump. */
 .file .fa .icon-btn { padding: 2px; }
@@ -397,7 +399,7 @@ select.inp { padding: 4px 6px; }
 .diff td.del, .diff td.del + td, .diff td.del + td + td { background: var(--del-bg); }
 .diff td.del.ln { background: var(--del-gutter); }
 .diff td.emp { background: var(--empty-bg); }
-.diff .split td.code { width: 50%; }
+.diff .split td.code { width: 50%; white-space: pre-wrap; overflow-wrap: anywhere; overflow: hidden; }
 .diff .split td.sep { width: 1px; background: var(--border); }
 .diff ins { background: var(--add-strong); text-decoration: none; border-radius: 2px; }
 .diff del { background: var(--del-strong); text-decoration: none; border-radius: 2px; }

@@ -161,7 +161,7 @@ export class DiffView {
    *   actions: 'stage' | 'unstage' | null,
    *   apply(patch, {cached, reverse}) -> Promise   (hunk/line staging)
    *   image: {old: () => Promise<b64|null>, new: () => Promise<b64|null>},
-   *   extra: [Node] toolbar extras, onAi(text)
+   *   extra: [Node] toolbar extras, onAi(text), onExternal() (external compare tool)
    *   conflict: bool
    * }
    */
@@ -225,6 +225,7 @@ export class DiffView {
       h('span.grow'),
       ...(o.extra || []),
       o.onAi && (loading || (this.result && !this.result.binary)) ? h('button.btn.sm.ai', { disabled: loading || null, title: t('A diff elemzése AI-jal'), on: { click: () => o.onAi(this.result.text) } }, icon('sparkle'), 'AI') : null,
+      o.onExternal ? h('button.btn.sm', { disabled: loading || null, title: t('Megnyitás a külső összehasonlítóban'), on: { click: () => o.onExternal() } }, icon('compare')) : null,
       (file || loading) && !o.conflict ? [
         h('button.icon-btn', { disabled: !file || null, title: t('Előző változás (Alt+↑)'), on: { click: () => this.jump(-1) } }, icon('up')),
         h('button.icon-btn', { disabled: !file || null, title: t('Következő változás (Alt+↓)'), on: { click: () => this.jump(1) } }, icon('down')),

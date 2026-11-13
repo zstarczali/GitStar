@@ -18,6 +18,8 @@ pub fn tr(hu: &str, en: &str) -> String {
     if ENGLISH.load(Ordering::Relaxed) { en.to_string() } else { hu.to_string() }
 }
 
+pub const DIFF_TOOL_ARGS_DEFAULT: &str = "\"$LOCAL\" \"$REMOTE\"";
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(default)]
 pub struct Settings {
@@ -54,6 +56,10 @@ pub struct Settings {
     pub diff_wrap: bool,
     pub log_limit: u32,
     pub font_size: u32,
+    /// External compare tool (e.g. DiffStar); empty = no external tool
+    pub diff_tool_path: String,
+    /// Its arguments; $LOCAL = old side, $REMOTE = new side
+    pub diff_tool_args: String,
     /// Folder with the installers (empty = update::UPDATE_SERVER_DEFAULT)
     pub update_server: String,
     /// Look for a new version at startup
@@ -94,6 +100,8 @@ impl Default for Settings {
             diff_wrap: false,
             log_limit: 1500,
             font_size: 13,
+            diff_tool_path: String::new(),
+            diff_tool_args: DIFF_TOOL_ARGS_DEFAULT.into(),
             update_server: String::new(),
             update_check: true,
             update_skip: String::new(),

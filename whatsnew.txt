@@ -1,6 +1,22 @@
 GitStar - What's new
 ====================
 
+1.0.7
+-----
+- Select files in the Staged and Unstaged lists with a checkbox,
+  Shift (range) or Ctrl, or all of them with the checkbox in the list
+  header. Stage, Unstage and Discard act on the selection, from the
+  header buttons and from the right-click menu.
+- Discard for staged files: the index and the working tree go back to
+  HEAD (new files are deleted, a rename is undone).
+- External compare tool (Settings -> Git): open a change, a commit file
+  or a compared file in another program, such as DiffStar. The DiffStar
+  button finds an installed DiffStar. $LOCAL / $REMOTE in the arguments
+  stand for the old and the new side; a working tree file is passed as
+  itself, so edits made in the tool are saved.
+- Fix: in the split diff view long lines ran over the other side; they
+  now wrap inside their own column.
+
 1.0.6
 -----
 - Fix: a long branch name pushed the toolbar buttons to the right. The
