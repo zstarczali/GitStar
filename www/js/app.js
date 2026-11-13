@@ -32,6 +32,7 @@ class Repo {
     this.commitDetails = null;
     this.selFile = null;          // {list: 'staged'|'unstaged'|'conflicted'|'commit'|'compare', path}
     this.multi = { staged: new Set(), unstaged: new Set() };
+    this.anchor = {};
     this.logRev = '';             // '' = all branches
     this.logPath = '';            // file history filter
     this.matches = null;          // Set of hashes from search
@@ -505,28 +506,59 @@ function fileRow(r, list, f, onSelect) {
     actions.push(h('button.icon-btn', { title: t('Elvetés'), on: { click: (e) => { e.stopPropagation(); discardFiles([f]); } } }, icon('undo')));
   } else if (list === 'staged') {
     actions.push(h('button.icon-btn', { title: 'Unstage', on: { click: (e) => { e.stopPropagation(); unstagePaths([f.path]); } } }, icon('minus')));
+    actions.push(h('button.icon-btn', { title: t('Elvetés'), on: { click: (e) => { e.stopPropagation(); discardStaged([f]); } } }, icon('undo')));
   }
+  // checkbox: adds / removes the file from the selection without opening its diff
+  const chk = r.multi[list] ? h('input.fchk', { type: 'checkbox', checked: multi || null, title: t('Kijelölés (Shift = tartomány)'),
+    on: {
+      click: (e) => {
+        e.stopPropagation();
+        if (e.shiftKey) rangeSelect(r, list, f.path);
+        else { const m = r.multi[list]; m.has(f.path) ? m.delete(f.path) : m.add(f.path); }
+        r.anchor[list] = f.path;
+        renderContent(true);
+      },
+      dblclick: (e) => e.stopPropagation(),
+    } }) : null;
   return h('div.file' + (sel || multi ? '.sel' : ''), {
     title: f.old_path && f.status !== 'U' ? `${f.old_path} → ${f.path}` : f.path,
     on: {
       click: (e) => {
+        if (r.multi[list] && e.shiftKey) {
+          rangeSelect(r, list, f.path);
+          renderContent(true);
+          return;
+        }
         if (r.multi[list] && (e.ctrlKey || e.metaKey)) {
           const m = r.multi[list];
           if (m.size === 0 && r.selFile?.list === list) m.add(r.selFile.path);
           m.has(f.path) ? m.delete(f.path) : m.add(f.path);
+          r.anchor[list] = f.path;
           renderContent(true);
           return;
         }
-        if (r.multi[list]) { r.multi.staged.clear(); r.multi.unstaged.clear(); }
+        if (r.multi[list]) { r.multi.staged.clear(); r.multi.unstaged.clear(); r.anchor[list] = f.path; }
         onSelect(f);
       },
       dblclick: () => { if (list === 'unstaged') stagePaths([f.path]); else if (list === 'staged') unstagePaths([f.path]); },
       contextmenu: (e) => fileMenu(e, r, list, f),
     },
-  }, h('span.st.st-' + stLetter, { title: statusName(f.status) }, stLetter === '?' ? 'A' : stLetter),
+  }, chk, h('span.st.st-' + stLetter, { title: statusName(f.status) }, stLetter === '?' ? 'A' : stLetter),
   h('span.fn', basename(f.path)), dir ? h('span.dir', dir) : h('span', { style: { flex: 1 } }),
   f.added != null || f.deleted != null ? h('span.stats', f.added != null ? h('span.a', `+${f.added}`) : null, f.deleted != null ? h('span.d', `−${f.deleted}`) : null) : null,
   actions.length ? h('span.fa', actions) : null);
+}
+
+// Shift: everything between the last clicked file (or the open one) and this one
+function rangeSelect(r, list, path) {
+  const paths = r.status[list].map((x) => x.path);
+  const from = r.anchor[list] ?? (r.selFile?.list === list ? r.selFile.path : path);
+  let a = paths.indexOf(from);
+  const b = paths.indexOf(path);
+  if (a < 0) a = b;
+  const m = r.multi[list];
+  m.clear();
+  paths.slice(Math.min(a, b), Math.max(a, b) + 1).forEach((p) => m.add(p));
 }
 
 const statusName = (s) => ({ M: t('Módosítva'), A: t('Új'), D: t('Törölve'), R: t('Átnevezve'), C: t('Másolva'), T: t('Típus változott'), U: t('Konfliktus'), '?': t('Nem követett (új)') }[s] || s);
@@ -535,7 +567,22 @@ function renderChanges(el, r, keep) {
   const st = r.status;
   if (!st) { el.replaceChildren(h('div.empty', t('Állapot betöltése…'))); return; }
   const dv = diffView();
+  // files gone since the last refresh leave the selection
+  for (const list of ['staged', 'unstaged']) {
+    const have = new Set(st[list].map((f) => f.path));
+    for (const p of [...r.multi[list]]) if (!have.has(p)) r.multi[list].delete(p);
+  }
   const selected = (list) => (r.multi[list].size ? [...r.multi[list]] : r.selFile?.list === list ? [r.selFile.path] : []);
+  const selectedFiles = (list) => { const p = new Set(selected(list)); return st[list].filter((f) => p.has(f.path)); };
+  const allChk = (list) => {
+    const n = st[list].length, k = r.multi[list].size;
+    const c = h('input.fchk', { type: 'checkbox', disabled: !n || null, title: t('Összes kijelölése'),
+      on: { click: () => { if (n && k === n) r.multi[list].clear(); else st[list].forEach((f) => r.multi[list].add(f.path)); renderContent(true); } } });
+    c.checked = n > 0 && k === n;
+    c.indeterminate = k > 0 && k < n;
+    return c;
+  };
+  const count = (list) => (r.multi[list].size ? t('{0} / {1} kijelölve', r.multi[list].size, st[list].length) : st[list].length);
 
   const unstagedList = h('div.file-list', st.unstaged.map((f) => fileRow(r, 'unstaged', f, (x) => selectChange(r, 'unstaged', x))));
   const stagedList = h('div.file-list', st.staged.map((f) => fileRow(r, 'staged', f, (x) => selectChange(r, 'staged', x))));
@@ -544,13 +591,15 @@ function renderChanges(el, r, keep) {
     h('div.file-list', st.conflicted.map((f) => fileRow(r, 'conflicted', f, (x) => selectChange(r, 'conflicted', x))))) : null;
 
   const unstagedWrap = h('div.file-list-wrap', { style: { flex: '1' } },
-    h('div.pane-h', t('Unstaged'), h('span.sub', st.unstaged.length), h('span.grow'),
+    h('div.pane-h', allChk('unstaged'), t('Unstaged'), h('span.sub', count('unstaged')), h('span.grow'),
+      h('button.btn.sm', { disabled: !selected('unstaged').length || null, title: t('Kijelöltek elvetése'), on: { click: () => discardFiles(selectedFiles('unstaged')) } }, t('Elvetés')),
       h('button.btn.sm', { disabled: !st.unstaged.length || null, title: t('Kijelöltek stage-elése'), on: { click: () => stagePaths(selected('unstaged')) } }, 'Stage'),
       h('button.btn.sm', { disabled: !st.unstaged.length || null, on: { click: () => stageAll() } }, t('Összes stage'))),
     unstagedList);
   const stagedWrap = h('div.file-list-wrap', { style: { flex: '1' } },
-    h('div.pane-h', t('Staged'), h('span.sub', st.staged.length), h('span.grow'),
-      h('button.btn.sm', { disabled: !st.staged.length || null, on: { click: () => unstagePaths(selected('staged')) } }, 'Unstage'),
+    h('div.pane-h', allChk('staged'), t('Staged'), h('span.sub', count('staged')), h('span.grow'),
+      h('button.btn.sm', { disabled: !selected('staged').length || null, title: t('Kijelöltek elvetése (az index és a munkakönyvtár is HEAD-re áll vissza)'), on: { click: () => discardStaged(selectedFiles('staged')) } }, t('Elvetés')),
+      h('button.btn.sm', { disabled: !st.staged.length || null, title: t('Kijelöltek unstage-elése'), on: { click: () => unstagePaths(selected('staged')) } }, 'Unstage'),
       h('button.btn.sm', { disabled: !st.staged.length || null, on: { click: () => unstagePaths([]) } }, t('Összes unstage'))),
     stagedList);
   const split = h('div.splitter-h');
@@ -577,6 +626,27 @@ function renderChanges(el, r, keep) {
 }
 
 const keyOf = (r, list, f) => `${r.path}|${list}|${f.path}`;
+
+// ── external compare tool (Settings → Git) ──
+// side: {rev, path}; rev '' = working tree, ':' = index; null = no such file on that side
+function workingSides(list, f) {
+  if (list === 'conflicted') return null;
+  if (list === 'staged') return { left: f.status === 'A' ? null : { rev: 'HEAD', path: f.old_path || f.path }, right: f.status === 'D' ? null : { rev: ':', path: f.path } };
+  if (f.status === '?') return { left: null, right: { rev: '', path: f.path } };
+  return { left: { rev: ':', path: f.path }, right: f.status === 'D' ? null : { rev: '', path: f.path } };
+}
+
+function revSides(f, from, to) {
+  return {
+    left: f.status === 'A' || !from ? null : { rev: from, path: f.old_path || f.path },
+    right: f.status === 'D' ? null : { rev: to || '', path: f.path },
+  };
+}
+
+function extDiff(r, sides) {
+  if (!sides || !S.settings.diff_tool_path) return null;
+  return () => invoke('external_diff', { repo: r.path, left: sides.left, right: sides.right }).catch((e) => toast(e, 'err'));
+}
 
 function selectChange(r, list, f, silent) {
   r.selFile = { list, path: f.path };
@@ -609,6 +679,7 @@ function selectChange(r, list, f, silent) {
       new: () => invoke('file_content', { repo: r.path, rev: list === 'staged' ? ':' : '', path: f.path }),
     },
     extra,
+    onExternal: extDiff(r, workingSides(list, f)),
     onAi: (text) => aiPanel(t('AI elemzés – {0}', basename(f.path)), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
   });
 }
@@ -801,6 +872,15 @@ async function discardFiles(files) {
   r.multi.unstaged.clear();
   await refreshStatus(r); renderAll(true);
 }
+async function discardStaged(files) {
+  const r = cur();
+  if (!files.length) return;
+  const names = files.map((f) => f.path).slice(0, 12).join('\n') + (files.length > 12 ? t('\n… és még {0}', files.length - 12) : '');
+  if (!(await confirmDlg(t('Változások elvetése'), t('Ezek a fájlok visszaállnak a HEAD állapotára (a stage-elt és a munkakönyvtárbeli változásuk is elveszik, az új fájlok törlődnek):\n\n{0}', names), t('Elvetés'), true))) return;
+  try { await invoke('discard_staged', { repo: r.path, files: files.map((f) => ({ path: f.path, old_path: f.old_path || null, status: f.status })) }); } catch (e) { toast(e, 'err'); }
+  r.multi.staged.clear();
+  await refreshStatus(r); renderAll(true);
+}
 async function resolve(path, side) {
   const r = cur();
   try { await invoke('resolve_conflict', { repo: r.path, path, side }); toast(t('Feloldva: {0}', path), 'ok'); } catch (e) { toast(e, 'err'); }
@@ -813,14 +893,16 @@ async function resolve(path, side) {
 
 function fileMenu(e, r, list, f) {
   const multi = r.multi[list]?.size ? [...r.multi[list]] : [f.path];
-  const files = list === 'unstaged' ? r.status.unstaged.filter((x) => multi.includes(x.path)) : [f];
+  const files = list === 'unstaged' || list === 'staged' ? r.status[list].filter((x) => multi.includes(x.path)) : [f];
   const abs = r.path + '\\' + f.path.replace(/\//g, '\\');
   // törölt fájl (vagy a munkakönyvtárból azóta törölt staged fájl): nincs mit megnyitni / megmutatni
   const gone = f.status === 'D' || r.status.unstaged.some((x) => x.path === f.path && x.status === 'D');
   contextMenu(e, [
     list === 'unstaged' ? { label: multi.length > 1 ? `Stage (${multi.length})` : 'Stage', icon: 'plus', action: () => stagePaths(multi) } : null,
     list === 'staged' ? { label: multi.length > 1 ? `Unstage (${multi.length})` : 'Unstage', icon: 'minus', action: () => unstagePaths(multi) } : null,
-    list === 'unstaged' ? { label: t('Változások elvetése…'), icon: 'undo', danger: true, action: () => discardFiles(files) } : null,
+    list === 'unstaged' ? { label: multi.length > 1 ? t('Változások elvetése ({0})…', multi.length) : t('Változások elvetése…'), icon: 'undo', danger: true, action: () => discardFiles(files) } : null,
+    list === 'staged' ? { label: multi.length > 1 ? t('Változások elvetése ({0})…', multi.length) : t('Változások elvetése…'), icon: 'undo', danger: true, action: () => discardStaged(files) } : null,
+    list === 'staged' || list === 'unstaged' ? { label: t('Összes kijelölése'), icon: 'check', action: () => { r.status[list].forEach((x) => r.multi[list].add(x.path)); renderContent(true); } } : null,
     list === 'conflicted' ? { label: t('Saját verzió (ours)'), icon: 'check', action: () => resolve(f.path, 'ours') } : null,
     list === 'conflicted' ? { label: t('Másik verzió (theirs)'), icon: 'check', action: () => resolve(f.path, 'theirs') } : null,
     list === 'conflicted' ? { label: t('Megjelölés feloldottként'), icon: 'check', action: () => resolve(f.path, 'mark') } : null,
@@ -828,6 +910,7 @@ function fileMenu(e, r, list, f) {
     { label: t('Megnyitás'), icon: 'file', disabled: gone, action: () => invoke('open_file', { path: abs }) },
     { label: t('Megjelenítés Intézőben'), icon: 'folder', disabled: gone, action: () => invoke('reveal_in_explorer', { path: abs }) },
     { label: t('Útvonal másolása'), icon: 'copy', action: () => copy(f.path) },
+    S.settings.diff_tool_path && list !== 'conflicted' ? { label: t('Külső összehasonlítás'), icon: 'compare', action: extDiff(r, workingSides(list, f)) } : null,
     '-',
     f.status !== '?' ? { label: t('Fájl előzmények'), icon: 'history', action: () => fileHistory(f.path) } : null,
     f.status !== '?' && f.status !== 'A' ? { label: 'Blame', icon: 'blame', action: () => showBlame(f.path, '') } : null,
@@ -1070,6 +1153,7 @@ function selectCommitFile(r, d, f) {
       h('button.btn.sm', { title: t('Fájl előzmények'), on: { click: () => fileHistory(f.path) } }, icon('history')),
       f.status !== 'D' ? h('button.btn.sm', { title: t('Blame ennél a commitnál'), on: { click: () => showBlame(f.path, d.hash) } }, icon('blame')) : null,
     ],
+    onExternal: extDiff(r, revSides(f, d.base, d.hash)),
     onAi: (text) => aiPanel(t('AI elemzés – {0} @ {1}', basename(f.path), short(d.hash)), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
   });
 }
@@ -1162,6 +1246,7 @@ function selectCompareFile(r, f) {
       old: () => (f.status === 'A' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: res.base, path: f.old_path || f.path })),
       new: () => (f.status === 'D' ? Promise.resolve(null) : invoke('file_content', { repo: r.path, rev: res.to || '', path: f.path })),
     },
+    onExternal: extDiff(r, revSides(f, res.base, res.to)),
     onAi: (text) => aiPanel(t('AI – {0}: {1} → {2}', basename(f.path), res.from, res.to || 'working tree'), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'file', path: f.path, diff_text: text, question: q } })),
   });
 }
@@ -2031,6 +2116,18 @@ async function settingsDlg() {
     finally { sshTestBtn.disabled = false; }
   } } }, t('Kapcsolat teszt'));
   const row = (...kids) => h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center' } }, ...kids);
+  // ── external compare tool ──
+  const toolInp = h('input.inp', { value: s.diff_tool_path || '', placeholder: t('üres = nincs (pl. DiffStar)'), spellcheck: 'false' });
+  const toolArgs = h('input.inp', { value: s.diff_tool_args || '"$LOCAL" "$REMOTE"', spellcheck: 'false' });
+  const toolOut = h('span.note', t('A diff eszköztárán és a fájl helyi menüjében megjelenik a Külső összehasonlítás. $LOCAL = a régi oldal (ideiglenes másolat), $REMOTE = az új oldal; a munkakönyvtárbeli fájl az eredeti, így a változtatásaid a repóba mentődnek.'));
+  const toolBrowse = async () => {
+    try { const p = await invoke('plugin:dialog|open', { options: { multiple: false, title: t('Összehasonlító program kiválasztása'), ...(/Windows/i.test(navigator.userAgent) ? { filters: [{ name: t('Program'), extensions: ['exe', 'cmd', 'bat'] }] } : {}) } }); if (p) toolInp.value = p; } catch (e) { toast(e, 'err'); }
+  };
+  const toolDetect = async () => {
+    const p = await invoke('detect_diff_tool').catch(() => '');
+    if (p) { toolInp.value = p; toolArgs.value = '"$LOCAL" "$REMOTE"'; toolOut.className = 'note ok'; toolOut.textContent = '✓ ' + t('DiffStar: {0}', p); }
+    else { toolOut.className = 'note err'; toolOut.textContent = '✗ ' + t('A DiffStar nem található. Telepítsd, vagy add meg az útvonalát.'); }
+  };
   const tabs = [
     ['git', 'Git', h('div.settings-grid',
     h('label.field.full', h('span', t('git.exe útvonala')), h('div', { style: { display: 'flex', gap: '6px' } }, gitInp,
@@ -2045,7 +2142,10 @@ async function settingsDlg() {
     h('div.note.full', t('A név és az email a globális git beállításba kerül (git config --global), minden repóra érvényes, ahol nincs saját beállítás.')),
     fld('pull_mode', t('Pull gomb módja'), sel([['merge', 'Merge'], ['rebase', 'Rebase'], ['ff', t('Csak fast-forward')], ['ask', t('Mindig kérdezzen')]], s.pull_mode || 'merge'),
       t('Shift+kattintás vagy jobb klikk a Pull gombon mindig megnyitja a párbeszédablakot.')),
-    fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })))],
+    fld('log_limit', t('Betöltött commitok száma'), h('input.inp', { type: 'number', min: 100, max: 50000, value: s.log_limit })),
+    h('div.settings-sec', t('Külső összehasonlító')),
+    h('label.field.full', h('span', t('Program')), row(toolInp, h('button.btn', { type: 'button', on: { click: toolBrowse } }, t('Tallózás…')), h('button.btn', { type: 'button', on: { click: toolDetect } }, 'DiffStar'))),
+    h('label.field.full', h('span', t('Argumentumok')), toolArgs, toolOut))],
     ['ssh', t('SSH / Hitelesítés'), h('div.settings-grid',
     h('div.settings-sec', t('Hitelesítés')),
     h('div.field.full', h('span.note', t('A beállított SSH-kulcs csak SSH-címekhez használható. Válassz kapcsolatot tárolónként:')),
@@ -2110,6 +2210,8 @@ async function settingsDlg() {
     update_check: updCheck.checked,
     ssh_key_path: sshInp.value.trim().replace(/\.pub$/i, ''),
     zoom: +els.zoom.value || 1,
+    diff_tool_path: toolInp.value.trim(),
+    diff_tool_args: toolArgs.value.trim() || '"$LOCAL" "$REMOTE"',
   });
   applyZoom();
   try { await invoke('update_server_check', { url: updServer.value }); S.settings.update_server = updServer.value.trim(); }

@@ -906,6 +906,48 @@ pub async fn discard(state: State<'_, AppState>, repo: String, paths: Vec<String
     .await
 }
 
+#[derive(Deserialize)]
+pub struct StagedFile {
+    pub path: String,
+    pub old_path: Option<String>,
+    pub status: String,
+}
+
+/// Throws away staged files: the index and the working tree go back to HEAD.
+/// A file new in the index (A / C, the new name of an R) is removed from both.
+#[tauri::command]
+pub async fn discard_staged(state: State<'_, AppState>, repo: String, files: Vec<StagedFile>) -> Result<(), String> {
+    let git = state.git();
+    blocking(move || {
+        let mut remove: Vec<String> = vec![];
+        let mut restore: Vec<String> = vec![];
+        for f in files {
+            match f.status.as_str() {
+                "A" | "C" => remove.push(f.path),
+                "R" => {
+                    remove.push(f.path);
+                    if let Some(o) = f.old_path.filter(|o| !o.is_empty()) {
+                        restore.push(o);
+                    }
+                }
+                _ => restore.push(f.path),
+            }
+        }
+        if !remove.is_empty() {
+            let mut a = vec!["rm".to_string(), "-f".into(), "-q".into(), "--".into()];
+            a.extend(remove);
+            git.run(&repo, &s(&a))?;
+        }
+        if !restore.is_empty() {
+            let mut a = vec!["restore".to_string(), "--staged".into(), "--worktree".into(), "--source=HEAD".into(), "--".into()];
+            a.extend(restore);
+            git.run(&repo, &s(&a))?;
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// Applies a patch made by the UI (hunk / line staging, discard).
 #[tauri::command]
 pub async fn apply_patch(state: State<'_, AppState>, repo: String, patch: String, cached: bool, reverse: bool) -> Result<(), String> {
@@ -1060,6 +1102,140 @@ pub fn open_file(path: String) -> Result<(), String> {
     return spawn(Proc::new("open").arg(&path));
     #[cfg(not(any(windows, target_os = "macos")))]
     return spawn(Proc::new("xdg-open").arg(&path));
+}
+
+// ───────────────────────────── external compare tool ─────────────────────────────
+
+/// One side of an external comparison. rev: "" = working tree, ":" = index,
+/// else a revision. None = the file does not exist on that side.
+#[derive(Deserialize)]
+pub struct DiffSide {
+    pub rev: String,
+    pub path: String,
+}
+
+/// Splits the argument template like a shell (double quotes group, no escapes)
+/// and puts the two file names in place of $LOCAL / $REMOTE.
+fn diff_tool_argv(template: &str, local: &str, remote: &str) -> Vec<String> {
+    let mut out = vec![];
+    let mut cur = String::new();
+    let (mut quoted, mut any) = (false, false);
+    for c in template.chars() {
+        match c {
+            '"' => { quoted = !quoted; any = true; }
+            c if c.is_whitespace() && !quoted => {
+                if any { out.push(std::mem::take(&mut cur)); any = false; }
+            }
+            c => { cur.push(c); any = true; }
+        }
+    }
+    if any { out.push(cur); }
+    out.into_iter().map(|a| a.replace("$LOCAL", local).replace("$REMOTE", remote)).collect()
+}
+
+fn difftool_root() -> std::path::PathBuf {
+    std::env::temp_dir().join("gitstar-difftool")
+}
+
+/// Writes one side to a file the tool can open. The working tree file is used
+/// in place, so the changes made in the tool are saved into the repository.
+fn diff_side_file(git: &Git, repo: &str, dir: &Path, side: &Option<DiffSide>, other: &str) -> Result<String, String> {
+    let Some(sd) = side else {
+        let name = Path::new(other).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "empty".into());
+        let d = dir.join("empty");
+        std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+        let f = d.join(name);
+        std::fs::write(&f, b"").map_err(|e| e.to_string())?;
+        return Ok(f.to_string_lossy().into_owned());
+    };
+    if sd.rev.is_empty() {
+        return Ok(Path::new(repo).join(&sd.path).to_string_lossy().into_owned());
+    }
+    let bytes = if sd.rev == ":" {
+        git.run_bytes(repo, &["show", &format!(":{}", sd.path)])?
+    } else {
+        git.run_bytes(repo, &["show", &format!("{}:{}", sd.rev, sd.path)])?
+    };
+    let label: String = if sd.rev == ":" { "index".into() } else {
+        let r: String = sd.rev.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '.' { c } else { '_' }).collect();
+        if r.len() == 40 && r.chars().all(|c| c.is_ascii_hexdigit()) { r[..10].to_string() } else { r }
+    };
+    let name = Path::new(&sd.path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+    let d = dir.join(label);
+    std::fs::create_dir_all(&d).map_err(|e| e.to_string())?;
+    let f = d.join(name);
+    std::fs::write(&f, bytes).map_err(|e| e.to_string())?;
+    Ok(f.to_string_lossy().into_owned())
+}
+
+/// Opens the two sides of a change in the external compare tool (Settings → Git).
+#[tauri::command]
+pub async fn external_diff(state: State<'_, AppState>, repo: String, left: Option<DiffSide>, right: Option<DiffSide>) -> Result<(), String> {
+    let st = state.settings.get();
+    let tool = st.diff_tool_path.trim().to_string();
+    if tool.is_empty() {
+        return Err(tr("Nincs beállítva külső összehasonlító (Beállítások → Git).", "No external compare tool is set (Settings → Git)."));
+    }
+    let template = if st.diff_tool_args.trim().is_empty() { crate::settings::DIFF_TOOL_ARGS_DEFAULT.to_string() } else { st.diff_tool_args.clone() };
+    let git = state.git();
+    blocking(move || {
+        let root = difftool_root();
+        // copies of earlier comparisons older than a day
+        if let Ok(rd) = std::fs::read_dir(&root) {
+            for e in rd.flatten() {
+                let old = e.metadata().and_then(|m| m.modified()).ok()
+                    .and_then(|m| m.elapsed().ok()).is_some_and(|d| d.as_secs() > 86_400);
+                if old { let _ = std::fs::remove_dir_all(e.path()); }
+            }
+        }
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let dir = root.join(format!("{}-{stamp}", std::process::id()));
+        let any_path = left.as_ref().or(right.as_ref()).map(|x| x.path.clone()).unwrap_or_default();
+        let l = diff_side_file(&git, &repo, &dir, &left, &any_path)?;
+        let r = diff_side_file(&git, &repo, &dir, &right, &any_path)?;
+        let mut cmd = Proc::new(&tool);
+        cmd.args(diff_tool_argv(&template, &l, &r)).current_dir(&repo);
+        cmd.spawn().map(|_| ()).map_err(|e| tr(&format!("A külső összehasonlító nem indult el ({tool}): {e}"), &format!("Could not start the compare tool ({tool}): {e}")))
+    })
+    .await
+}
+
+/// Looks for an installed DiffStar; empty string = not found.
+#[tauri::command]
+pub fn detect_diff_tool() -> String {
+    let mut cands: Vec<std::path::PathBuf> = vec![];
+    #[cfg(windows)]
+    {
+        for var in ["LOCALAPPDATA", "ProgramFiles", "ProgramW6432"] {
+            if let Some(d) = std::env::var_os(var) {
+                cands.push(Path::new(&d).join("DiffStar").join("diffstar.exe"));
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        cands.push("/Applications/DiffStar.app/Contents/MacOS/diffstar".into());
+        if let Some(h) = std::env::var_os("HOME") {
+            cands.push(Path::new(&h).join("Applications/DiffStar.app/Contents/MacOS/diffstar"));
+        }
+    }
+    let exe = if cfg!(windows) { "diffstar.exe" } else { "diffstar" };
+    if let Some(p) = std::env::var_os("PATH") {
+        cands.extend(std::env::split_paths(&p).map(|d| d.join(exe)));
+    }
+    cands.into_iter().find(|p| p.is_file()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod diff_tool_tests {
+    use super::diff_tool_argv;
+
+    #[test]
+    fn template_quotes_and_placeholders() {
+        assert_eq!(diff_tool_argv("\"$LOCAL\" \"$REMOTE\"", "C:\\a b\\x.txt", "y.txt"), vec!["C:\\a b\\x.txt", "y.txt"]);
+        assert_eq!(diff_tool_argv("-d  --left=\"$LOCAL\"  $REMOTE", "l", "r"), vec!["-d", "--left=l", "r"]);
+        assert_eq!(diff_tool_argv("", "l", "r"), Vec::<String>::new());
+    }
 }
 
 /// Opens a web page (e.g. a "new pull request" page) in the default browser.

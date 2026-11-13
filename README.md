@@ -6,7 +6,7 @@
 
 GitStar is a Git client with a **Tauri 2 and Rust** backend and a Fork-style interface. It runs Git operations through the installed Git executable, so hooks, credential helpers, Git LFS, and Git configuration work as they do on the command line.
 
-Current version **1.0.6**. The main-window Donate button appears after 10 minutes of foreground use. Time spent with the window unfocused or hidden pauses the timer, which resets each time GitStar starts. Donations are also available from the About dialog.
+Current version **1.0.7**. The main-window Donate button appears after 10 minutes of foreground use. Time spent with the window unfocused or hidden pauses the timer, which resets each time GitStar starts. Donations are also available from the About dialog.
 
 See [What's new](whatsnew.txt) for the release history.
 
@@ -15,11 +15,11 @@ See [What's new](whatsnew.txt) for the release history.
 - **Repository tab indicators** — Tabs show the number of files with uncommitted changes, including staged, unstaged, and untracked files. Conflicts highlight the badge in red. Hover over the badge for a breakdown. All open repositories are checked at startup and every five seconds while the app is in focus, including tabs that have not been selected.
 - **Authentication** — Choose SSH or HTTPS per GitHub remote from Settings or the remote context menu, with separate Fetch/Push URL previews. SSH uses your selected key or agent; HTTPS uses saved Git credentials.
 - **Repositories** — Open, clone, and initialize repositories, work across tabs, and reopen recent repositories.
-- **Local changes** — View unstaged, staged, and conflicting files. Stage, unstage, or discard changes by file, **hunk, or line**. Click a line number to select it or Shift-click to select a range. Add files to `.gitignore`.
+- **Local changes** — View unstaged, staged, and conflicting files. Stage, unstage, or discard changes by file, **hunk, or line**. Click a line number to select it or Shift-click to select a range. Select files with checkboxes, Shift (range), Ctrl or the list header's select-all box, then stage, unstage or discard them together; discarding staged files returns them to HEAD. Add files to `.gitignore`.
 - **Commits** — Amend commits, use Ctrl+Enter to commit, check the summary against a 72-character limit, and start with a prefilled merge message.
 - **AI commit messages** — Generate Conventional Commits, simple summaries, or detailed messages in English or Hungarian using the staged diff and recent commit style.
 - **History** — Browse a color-coded commit graph with merge lanes, a virtualized list, and ref labels. Search by message, hash, author, content (`-S`), or path, and view file history and blame.
-- **Visual diffs** — Switch between side-by-side and unified views with **word-level highlighting**. Navigate changes with the minimap or Alt+↑ / Alt+↓. Choose 3, 10, or 25 lines of context or show the full file. Ignore whitespace, wrap lines, compare images side by side or with a slider, and inspect conflict markers.
+- **Visual diffs** — Switch between side-by-side and unified views with **word-level highlighting**. Navigate changes with the minimap or Alt+↑ / Alt+↓. Choose 3, 10, or 25 lines of context or show the full file. Ignore whitespace, wrap lines, compare images side by side or with a slider, and inspect conflict markers. Open any change in an **external compare tool** such as DiffStar (Settings → Git; `$LOCAL` / `$REMOTE` arguments, working tree files are passed as themselves so edits are saved).
 - **Comparisons** — Compare branches, tags, commits, or the working tree. Use merge-base mode (`A...B`) and see commits unique to each side.
 - **AI diff analysis** — Explain a commit, compare branches or revisions for incoming changes, risks, and merge issues, or summarize an individual file diff.
 - **Branches, remotes, tags, and stashes** — Check out branches with optional stashing, create, rename, or delete local and remote branches, and set upstreams. Merge with fast-forward, no-fast-forward, fast-forward-only, or squash. Rebase, cherry-pick, revert, or reset in soft, mixed, or hard mode. Fetch, pull with merge, rebase, or fast-forward-only and optional autostash, and push with upstream, force-with-lease, or tag options. Create, push, or delete tags, push, apply, pop, drop, or branch from stashes, and add, edit, or remove remotes.

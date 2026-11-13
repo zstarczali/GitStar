@@ -1,11 +1,17 @@
 GitStar Installation Guide
 ==========================
 
-Version 1.0.6
+Version 1.0.7
 -------------
-A long branch name no longer pushes the toolbar to the right: it is
-shortened, and the full name is shown in a tooltip. "Open" and "Show in
-Explorer" are greyed out for deleted files.
+Files in the Staged and Unstaged lists can be selected one by one,
+as a range (Shift) or all at once, then staged, unstaged or discarded
+together. Staged files can be discarded too. An external compare tool
+such as DiffStar can be set in Settings -> Git. Long lines no longer
+overlap in the split diff view.
+
+Since 1.0.6: A long branch name no longer pushes the toolbar to the
+right: it is shortened, and the full name is shown in a tooltip.
+"Open" and "Show in Explorer" are greyed out for deleted files.
 
 Since 1.0.5: On macOS the self-update installs the new version and
 restarts GitStar, instead of only opening the downloaded .dmg.
