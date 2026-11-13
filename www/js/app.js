@@ -272,11 +272,12 @@ function renderToolbar() {
   const nextTheme = nextBasicTheme();
   const st = r?.status;
   const no = !r;
+  const branchLabel = st ? (st.detached ? `HEAD (${short(st.head)})` : st.branch) : '…';
   el.replaceChildren(
     r ? h('div.repo-title',
-      h('span.rn', r.name),
-      h('span.rb', icon('branch'), st ? (st.detached ? `HEAD (${short(st.head)})` : st.branch) : '…',
-        st && st.upstream ? h('span', { title: st.upstream }, `${st.ahead ? '↑' + st.ahead : ''} ${st.behind ? '↓' + st.behind : ''}`) : null)) : h('div.repo-title', h('span.rn', 'GitStar')),
+      h('span.rn', { title: r.name }, r.name),
+      h('span.rb', icon('branch'), h('span.rb-name', { title: st ? branchLabel : null }, branchLabel),
+        st && st.upstream ? h('span.rb-ab', { title: st.upstream }, `${st.ahead ? '↑' + st.ahead : ''} ${st.behind ? '↓' + st.behind : ''}`) : null)) : h('div.repo-title', h('span.rn', 'GitStar')),
     h('div.tb-sep'),
     tb('Fetch', 'fetch', () => doFetch(), { disabled: no }),
     tb('Pull', 'pull', (e) => (e.shiftKey ? pullDlg() : doPull()), { disabled: no, badge: st?.behind || null, menu: () => pullDlg(),
@@ -814,6 +815,8 @@ function fileMenu(e, r, list, f) {
   const multi = r.multi[list]?.size ? [...r.multi[list]] : [f.path];
   const files = list === 'unstaged' ? r.status.unstaged.filter((x) => multi.includes(x.path)) : [f];
   const abs = r.path + '\\' + f.path.replace(/\//g, '\\');
+  // törölt fájl (vagy a munkakönyvtárból azóta törölt staged fájl): nincs mit megnyitni / megmutatni
+  const gone = f.status === 'D' || r.status.unstaged.some((x) => x.path === f.path && x.status === 'D');
   contextMenu(e, [
     list === 'unstaged' ? { label: multi.length > 1 ? `Stage (${multi.length})` : 'Stage', icon: 'plus', action: () => stagePaths(multi) } : null,
     list === 'staged' ? { label: multi.length > 1 ? `Unstage (${multi.length})` : 'Unstage', icon: 'minus', action: () => unstagePaths(multi) } : null,
@@ -822,8 +825,8 @@ function fileMenu(e, r, list, f) {
     list === 'conflicted' ? { label: t('Másik verzió (theirs)'), icon: 'check', action: () => resolve(f.path, 'theirs') } : null,
     list === 'conflicted' ? { label: t('Megjelölés feloldottként'), icon: 'check', action: () => resolve(f.path, 'mark') } : null,
     '-',
-    { label: t('Megnyitás'), icon: 'file', action: () => invoke('open_file', { path: abs }) },
-    { label: t('Megjelenítés Intézőben'), icon: 'folder', action: () => invoke('reveal_in_explorer', { path: abs }) },
+    { label: t('Megnyitás'), icon: 'file', disabled: gone, action: () => invoke('open_file', { path: abs }) },
+    { label: t('Megjelenítés Intézőben'), icon: 'folder', disabled: gone, action: () => invoke('reveal_in_explorer', { path: abs }) },
     { label: t('Útvonal másolása'), icon: 'copy', action: () => copy(f.path) },
     '-',
     f.status !== '?' ? { label: t('Fájl előzmények'), icon: 'history', action: () => fileHistory(f.path) } : null,

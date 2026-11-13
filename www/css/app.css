@@ -136,9 +136,11 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .about-free { text-align: center; font-size: 12px; color: var(--text-dim); margin-top: 8px; }
 .tb-sep { width: 1px; height: 30px; background: var(--border); margin: 0 6px; }
 .tb-spacer { flex: 1; }
-.repo-title { display: flex; flex-direction: column; padding: 0 12px; min-width: 0; }
+.repo-title { display: flex; flex-direction: column; padding: 0 12px; min-width: 0; max-width: 240px; flex-shrink: 0; }
+.repo-title .rb-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.repo-title .rb-ab, .repo-title .rb > svg { flex-shrink: 0; }
 .repo-title .rn { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.repo-title .rb { color: var(--text-dim); font-size: 12px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
+.repo-title .rb { color: var(--text-dim); font-size: 12px; display: flex; gap: 6px; align-items: center; white-space: nowrap; min-width: 0; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
