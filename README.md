@@ -9,7 +9,7 @@
   <a href="https://www.c64va.pro/gitstar.html"><img src="https://img.shields.io/badge/website-c64va.pro-e05d44?style=flat" alt="Website"></a>
   <a href="https://github.com/zstarczali/GitStar/blob/main/package.json"><img src="https://img.shields.io/github/package-json/v/zstarczali/GitStar/main?label=version&color=4c1" alt="Version"></a>
   <a href="https://github.com/zstarczali/GitStar/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/zstarczali/GitStar/build.yml?branch=main&label=build" alt="Build"></a>
-  <a href="https://github.com/zstarczali/GitStar/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-freeware-blue" alt="License: Freeware"></a>
+  <a href="https://github.com/zstarczali/GitStar/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="License: MIT"></a>
   <a href="https://www.c64va.pro/register/donate.php"><img src="https://img.shields.io/badge/donate-PayPal-00457C?logo=paypal&logoColor=white" alt="Donate"></a>
 </p>
 <p align="center">
@@ -189,7 +189,7 @@ See [whatsnew.txt](whatsnew.txt) for the changes in each version.
 
 ## License
 
-GitStar is freeware: free to download and use, including at work, but it may not be copied, redistributed, published, sold, or modified without the author's written permission. See [LICENSE](LICENSE).
+GitStar is free and open source under the MIT License, © 2026 Zsolt Tarczali. See [LICENSE](LICENSE).
 
 If GitStar is useful to you, you can support its development with a small [donation](https://www.c64va.pro/register/donate.php) (also from the heart button in the toolbar).
 
