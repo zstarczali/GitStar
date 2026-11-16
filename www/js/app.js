@@ -7,6 +7,7 @@ import {
 } from './util.js';
 import { DiffView, renderBlame } from './diff.js';
 import { t, setLang, getLang } from './i18n.js';
+import { aiUsageInit, aiUsageItem } from './aiusage.js';
 import { graphSvg, graphWidth, ROW_H } from './graph.js';
 
 // ───────────────────────── state ─────────────────────────
@@ -315,7 +316,7 @@ function renderStatusbar() {
     st ? h('span', t('{0} staged · {1} változott', st.staged.length, st.unstaged.length) + (st.conflicted.length ? t(' · {0} konfliktus', st.conflicted.length) : '')) : null,
     r ? h('span', t('{0} commit', r.commits.length)) : null,
     zoomNow() !== 1 ? h('span.zoom-status', { title: t('Nagyítás visszaállítása 100%-ra (Ctrl+0)'), on: { click: () => setZoom(1) } }, Math.round(zoomNow() * 100) + '%') : null,
-    h('span', t('AI: {0}', aiKey() ? aiModel() : t('nincs kulcs'))),
+    aiUsageItem(aiKey() ? aiModel() : t('nincs kulcs')),
     S.update?.updateAvailable ? h('span.update-status', { title: t('Kattints a telepítéshez'), on: { click: () => updateShowAvailable() } }, icon('fetch'), t('Frissítés elérhető: v{0}', S.update.latestVersion)) : null,
   );
 }
@@ -2356,6 +2357,7 @@ async function boot() {
   matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (S.settings.theme === 'system') { applyTheme(); renderAll(true); } });
   splitter(document.getElementById('side-split'), document.getElementById('sidebar'), { min: 160, max: 520, key: 'gs.sideW' });
   renderAll();
+  aiUsageInit(() => renderStatusbar());
   startDonationTimer();
   const wanted = S.settings.active_repo;
   S.restoring = true;
