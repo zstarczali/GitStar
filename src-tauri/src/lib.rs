@@ -9,6 +9,7 @@ mod settings;
 mod claude_cli;
 mod ssh;
 mod update;
+mod usage;
 
 use commands::AppState;
 use tauri::Manager;
@@ -53,6 +54,7 @@ pub fn run() {
         )
         .setup(|app| {
             let dir = app.path().app_config_dir().unwrap_or_else(|_| std::env::temp_dir().join("GitStar"));
+            usage::init(app.handle().clone(), dir.clone());
             app.manage(AppState { settings: settings::SettingsStore::load(dir) });
             ssh::warm_up();
             // Splash screen for SPLASH_TIME: the main window is created hidden right
@@ -87,6 +89,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            usage::ai_usage,
+            usage::ai_usage_reset,
             commands::get_settings,
             commands::save_settings,
             commands::git_version,
