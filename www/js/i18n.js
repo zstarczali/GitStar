@@ -428,7 +428,7 @@ const EN = {
   'A telepített Claude Code CLI-t (claude) futtatja a saját bejelentkezéseddel (Pro/Max előfizetés vagy a CLI-ben beállított kulcs), így itt nem kell API kulcs. Bejelentkezés: futtasd egyszer a „claude” parancsot egy terminálban.': 'Runs the installed Claude Code CLI (claude) with your own login (Pro/Max subscription or the key set up in the CLI), so no API key is needed here. To sign in, run „claude” once in a terminal.',
   'Adomány': 'Donate',
   'A GitStar ingyenes. Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést.': 'GitStar is free. If you find it useful, a small donation supports its development.',
-  'A GitStar ingyenes (freeware). Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést. Köszönöm!': 'GitStar is free (freeware). If you find it useful, a small donation supports its development. Thank you!',
+  'A GitStar ingyenes, MIT-licencű. Ha hasznos neked, egy kis adománnyal támogathatod a fejlesztést. Köszönöm!': 'GitStar is free and MIT-licensed. If you find it useful, a small donation supports its development. Thank you!',
   'Kihagyom ezt a verziót': 'Skip this version',
   'Telepítés most': 'Install now',
   'Új verzió érhető el': 'Update available',

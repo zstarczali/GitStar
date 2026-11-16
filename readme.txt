@@ -163,3 +163,6 @@ Example with Git root /Users/zsolt/Dev:
   Mode: SSH (GitHub)
   Clone URL: git@github.com:zstarczali/SID-Studio.git
   Destination: /Users/zsolt/Dev/SID-Studio
+
+License: MIT. Copyright (c) 2026 Zsolt Tarczali. See LICENSE.
+Third-party components retain their own licenses.
