@@ -1,6 +1,6 @@
 {
   "name": "gitstar",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "private": true,
   "license": "MIT",
   "description": "GitStar - git client (Tauri 2 + Rust) with AI commit messages and visual diff",

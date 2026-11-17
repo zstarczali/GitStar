@@ -58,6 +58,7 @@ const EN = {
   'Terminál itt': 'Open terminal here',
   'Útvonal másolása': 'Copy path',
   'Bezárás': 'Close',
+  'További fülek: {0}': 'More tabs: {0}',
   'Repository megnyitása (Ctrl+O)': 'Open repository (Ctrl+O)',
   'Ág': 'Branch',
   'Új ág': 'New branch',
