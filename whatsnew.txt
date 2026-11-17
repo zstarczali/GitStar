@@ -1,6 +1,13 @@
 GitStar - What's new
 ====================
 
+1.0.9
+-----
+- When the repository tabs do not fit in the window, the ones that fit
+  are shown (the active one always) and a "v N" button after them
+  lists the other repositories: pick one from its menu to switch to it.
+  The tab bar follows the window width when it is resized.
+
 1.0.8
 -----
 - AI token counter in the status bar: the tokens used by the AI

@@ -1,7 +1,7 @@
 // GitStar – main UI.
 
 import {
-  invoke, h, icon, toast, modal, confirmDlg, formDlg, combo, contextMenu, relTime, fmtDate, avatar,
+  invoke, h, icon, toast, modal, confirmDlg, formDlg, combo, contextMenu, fitTabs, relTime, fmtDate, avatar,
   short, basename, dirname, splitter, markdown, shellSplit, debounce, esc,
   initUiState, uiGet, uiSet, editMenu,
 } from './util.js';
@@ -254,6 +254,7 @@ function renderTabs() {
     h('button.x', { title: t('Bezárás'), on: { click: (e) => { e.stopPropagation(); askCloseRepo(i); } } }, icon('close')))),
     h('button.tab-add', { title: t('Repository megnyitása (Ctrl+O)'), on: { click: () => { S.active = -1; renderAll(); } } }, icon('plus')),
   );
+  fitTabs(el, S.active, (i) => ({ label: S.repos[i].name, icon: 'folder', action: () => switchRepo(i) }));
 }
 
 function tb(label, ic, action, { disabled, title, badge, spin, menu, drop, dropTitle } = {}) {
