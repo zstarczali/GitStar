@@ -1,7 +1,7 @@
 // GitStar – main UI.
 
 import {
-  invoke, h, icon, toast, modal, confirmDlg, formDlg, combo, contextMenu, fitTabs, relTime, fmtDate, avatar,
+  invoke, h, icon, toast, modal, confirmDlg, formDlg, combo, contextMenu, fitTabs, dragTab, relTime, fmtDate, avatar,
   short, basename, dirname, splitter, markdown, shellSplit, debounce, esc,
   initUiState, uiGet, uiSet, editMenu,
 } from './util.js';
@@ -52,6 +52,7 @@ const cur = () => S.repos[S.active] || null;
 const isDeepSeek = () => S.settings?.ai_provider === 'deepseek';
 const isClaudeCli = () => S.settings?.ai_provider === 'claude-cli';
 // truthy when AI is usable; the Claude CLI needs no key (it uses its own login)
+const aiOn = () => S.settings?.ai_enabled !== false;
 const aiKey = () => (isClaudeCli() ? 'cli' : (isDeepSeek() ? S.settings?.deepseek_api_key : S.settings?.anthropic_api_key) || '');
 const aiProviderName = () => (isDeepSeek() ? 'DeepSeek' : isClaudeCli() ? 'Claude Code CLI' : 'Anthropic Claude');
 const aiModel = () => (isDeepSeek() ? S.settings?.deepseek_model : S.settings?.ai_model) || '';
@@ -89,6 +90,8 @@ function applyTheme() {
   let th = S.settings.theme;
   if (th === 'system') th = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
   document.documentElement.dataset.theme = th;
+  // AI off: hides the AI buttons of views that stay open (e.g. the diff toolbar) at once
+  document.documentElement.classList.toggle('no-ai', !aiOn());
   document.documentElement.style.setProperty('--font-size', (S.settings.font_size || 13) + 'px');
 }
 
@@ -235,6 +238,7 @@ function renderTabs() {
       title: r.path,
       on: {
         mousedown: (e) => { if (e.button === 1) { e.preventDefault(); askCloseRepo(i); } },
+        pointerdown: (e) => dragTab(e, i, moveRepo),
         click: () => switchRepo(i),
         contextmenu: (e) => contextMenu(e, [
           { label: t('Megnyitás Intézőben'), icon: 'folder', action: () => invoke('reveal_in_explorer', { path: r.path }) },
@@ -255,6 +259,15 @@ function renderTabs() {
     h('button.tab-add', { title: t('Repository megnyitása (Ctrl+O)'), on: { click: () => { S.active = -1; renderAll(); } } }, icon('plus')),
   );
   fitTabs(el, S.active, (i) => ({ label: S.repos[i].name, icon: 'folder', action: () => switchRepo(i) }));
+}
+
+/** Drag & drop reorder of the tabs; the active repo stays active. */
+function moveRepo(from, to) {
+  const active = cur();
+  S.repos.splice(to, 0, ...S.repos.splice(from, 1));
+  S.active = S.repos.indexOf(active);
+  persistRepos();
+  renderTabs();
 }
 
 function tb(label, ic, action, { disabled, title, badge, spin, menu, drop, dropTitle } = {}) {
@@ -317,7 +330,7 @@ function renderStatusbar() {
     st ? h('span', t('{0} staged · {1} változott', st.staged.length, st.unstaged.length) + (st.conflicted.length ? t(' · {0} konfliktus', st.conflicted.length) : '')) : null,
     r ? h('span', t('{0} commit', r.commits.length)) : null,
     zoomNow() !== 1 ? h('span.zoom-status', { title: t('Nagyítás visszaállítása 100%-ra (Ctrl+0)'), on: { click: () => setZoom(1) } }, Math.round(zoomNow() * 100) + '%') : null,
-    aiUsageItem(aiKey() ? aiModel() : t('nincs kulcs')),
+    aiOn() ? aiUsageItem(aiKey() ? aiModel() : t('nincs kulcs')) : null,
     S.update?.updateAvailable ? h('span.update-status', { title: t('Kattints a telepítéshez'), on: { click: () => updateShowAvailable() } }, icon('fetch'), t('Frissítés elérhető: v{0}', S.update.latestVersion)) : null,
   );
 }
@@ -714,7 +727,7 @@ function commitBox(r) {
   };
   updHint();
   const n = st.staged.length;
-  const commitBtn = h('button.btn.primary', { on: { click: () => doCommit(r) } });
+  const commitBtn = h('button.btn.primary.commit', { on: { click: () => doCommit(r) } });
   const resetAuthor = h('input', { type: 'checkbox', checked: !!r.resetAuthor, on: { change: (e) => { r.resetAuthor = e.target.checked; } } });
   const authorTxt = h('span');
   const resetLbl = h('label.chk.amend-author', { title: t('A módosított commit szerzője a beállított git név és email lesz (--reset-author)') }, resetAuthor, authorTxt);
@@ -724,12 +737,13 @@ function commitBox(r) {
       authorTxt.textContent = id.name || id.email ? t('Szerző: {0}', `${id.name} <${id.email}>`) : t('Szerző: nincs beállítva (Beállítások → Git)');
     } catch { authorTxt.textContent = t('Szerző frissítése'); }
   };
-  const otherBtn = h('button.btn', { title: t('Commit másik ágra… (ha rossz ágon dolgoztál)'), on: { click: () => commitToBranchDlg(r) } }, icon('branch'), t('Másik ágra…'));
+  const otherBtn = h('button.btn.other', { title: t('Commit másik ágra… (ha rossz ágon dolgoztál)'), on: { click: () => commitToBranchDlg(r) } }, icon('branch'), h('span.lbl', t('Másik ágra…')));
   const updBtn = () => {
     otherBtn.disabled = !n || r.amend || !!st.operation;
     commitBtn.disabled = !n && !r.amend && st.operation !== 'merge';
-    commitBtn.replaceChildren(icon('check'), (r.amend ? 'Amend' : 'Commit') + (n ? ` (${n})` : ''));
-    commitBtn.title = r.amend ? t('Az utolsó commit módosítása (üzenet és a staged változások)') : '';
+    const label = (r.amend ? 'Amend' : 'Commit') + (n ? ` (${n})` : '');
+    commitBtn.replaceChildren(icon('check'), h('span.lbl', label));
+    commitBtn.title = r.amend ? t('Az utolsó commit módosítása (üzenet és a staged változások)') : label;
     resetLbl.style.display = r.amend ? '' : 'none';
   };
   const amend = h('input', { type: 'checkbox', checked: r.amend, on: { change: async (e) => {
@@ -753,7 +767,7 @@ function commitBox(r) {
   const aiBtn = h('button.btn.ai', { title: t('Commit üzenet generálása a staged diff alapján'), disabled: !st.staged.length || null, on: { click: async () => {
     aiBtn.disabled = true;
     const old = aiBtn.innerHTML;
-    aiBtn.replaceChildren(icon('refresh', 'spin'), t('Generálás…'));
+    aiBtn.replaceChildren(icon('refresh', 'spin'), h('span.lbl', t('Generálás…')));
     try {
       const res = await invoke('ai_commit_message', { repo: r.path });
       r.commitMsg = res.text;
@@ -763,10 +777,10 @@ function commitBox(r) {
     } catch (e) { toast(e, 'err'); }
     aiBtn.innerHTML = old;
     aiBtn.disabled = false;
-  } } }, icon('sparkle'), t('AI üzenet'));
+  } } }, icon('sparkle'), h('span.lbl', t('AI üzenet')));
   return h('div.commit-box',
     ta,
-    h('div.row', h('label.chk', { title: t('Az utolsó commit módosítása') }, amend, 'Amend'), hint, h('span.grow'), aiBtn, otherBtn, commitBtn),
+    h('div.row', h('label.chk', { title: t('Az utolsó commit módosítása') }, amend, 'Amend'), hint, h('span.grow'), aiOn() ? aiBtn : null, otherBtn, commitBtn),
     resetLbl,
     !n && st.unstaged.length ? h('div.hint', t('Nincs staged fájl. Dupla kattintás vagy a + gomb egy fájlon stage-eli.')) : null);
 }
@@ -916,7 +930,7 @@ function fileMenu(e, r, list, f) {
     '-',
     f.status !== '?' ? { label: t('Fájl előzmények'), icon: 'history', action: () => fileHistory(f.path) } : null,
     f.status !== '?' && f.status !== 'A' ? { label: 'Blame', icon: 'blame', action: () => showBlame(f.path, '') } : null,
-    { label: t('AI elemzés (a teljes változás)'), icon: 'sparkle', action: () => aiPanel(t('AI elemzés – lokális változások'), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: list === 'staged' ? 'staged' : 'working', question: q } })) },
+    aiOn() && { label: t('AI elemzés (a teljes változás)'), icon: 'sparkle', action: () => aiPanel(t('AI elemzés – lokális változások'), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: list === 'staged' ? 'staged' : 'working', question: q } })) },
     f.status === '?' ? '-' : null,
     f.status === '?' ? { label: t('.gitignore-ba: {0}', f.path), icon: 'eye', action: () => ignore(f.path) } : null,
     f.status === '?' && f.path.includes('.') ? { label: t('.gitignore-ba: {0}', '*' + f.path.slice(f.path.lastIndexOf('.'))), icon: 'eye', action: () => ignore('*' + f.path.slice(f.path.lastIndexOf('.'))) } : null,
@@ -1129,7 +1143,7 @@ function renderDetails(el, r, keep) {
       d.committer !== d.author || d.committer_time !== d.author_time ? h('tr', h('td', 'Committer'), h('td', `${d.committer} · ${fmtDate(d.committer_time, true)}`)) : null,
       d.refs.length ? h('tr', h('td', t('Refek')), h('td', d.refs.join(', '))) : null),
     h('div', { style: { marginTop: '8px', display: 'flex', gap: '6px' } },
-      h('button.btn.sm.ai', { on: { click: () => aiCommit(r, d.hash) } }, icon('sparkle'), t('AI magyarázat')),
+      aiOn() ? h('button.btn.sm.ai', { on: { click: () => aiCommit(r, d.hash) } }, icon('sparkle'), t('AI magyarázat')) : null,
       h('button.btn.sm', { on: { click: () => { r.compare = { from: d.parents[0] || '', to: d.hash, mergeBase: false, result: null }; setView('compare'); runCompare(r); } } }, icon('compare'), t('Összehasonlítás'))),
   );
   const files = h('div', d.files.map((f) => fileRow(r, 'commit', f, (x) => selectCommitFile(r, d, x))));
@@ -1204,7 +1218,7 @@ function renderCompare(el, r, keep) {
     h('button.icon-btn', { title: t('Csere'), on: { click: () => { [c.from, c.to] = [c.to, c.from]; renderContent(); } } }, '⇄'), to,
     h('label.chk', { title: t('A "Honnan" helyett a két revízió közös ősét (merge-base) használja – azt mutatja, mit hozna be a "Hová" ág') }, mb, t('Merge-base (A...B)')),
     h('button.btn.primary', { on: { click: () => runCompare(r) } }, icon('compare'), t('Összehasonlítás')),
-    h('button.btn.ai', { disabled: !c.result || null, on: { click: () => aiCompare(r) } }, icon('sparkle'), t('AI összehasonlítás')));
+    aiOn() ? h('button.btn.ai', { disabled: !c.result || null, on: { click: () => aiCompare(r) } }, icon('sparkle'), t('AI összehasonlítás')) : null);
   const leftBody = h('div.details-body');
   const left = h('div.details', h('div.pane-h', t('Változott fájlok'), c.result ? h('span.sub', c.result.files.length) : null), leftBody);
   const vs = h('div.splitter-v');
@@ -1266,6 +1280,7 @@ function aiCommit(r, hash) {
 
 function aiPanel(title, run) {
   document.querySelector('.ai-panel')?.remove();
+  if (!aiOn()) { toast(t('Az AI funkciók ki vannak kapcsolva (Beállítások → AI).'), 'err'); return; }
   if (!aiKey()) {
     toast(t('Az AI funkciókhoz add meg az API kulcsot a Beállításokban.'), 'err');
     settingsDlg();
@@ -1360,7 +1375,7 @@ function localBranchMenu(e, b) {
     { label: t('Átnevezés…'), icon: 'changes', action: () => renameBranchDlg(b) },
     { label: t('Upstream beállítása…'), icon: 'cloud', action: () => upstreamDlg(b) },
     { label: t('Összehasonlítás az aktuális ággal'), icon: 'compare', disabled: b.current, action: () => { r.compare = { from: head, to: b.name, mergeBase: true, result: null }; setView('compare'); runCompare(r); } },
-    { label: t('AI: mit hoz be ez az ág?'), icon: 'sparkle', disabled: b.current, action: () => aiPanel(t('AI: {0} ↔ {1}', head, b.name), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head, to: b.name, merge_base: true, question: q } })) },
+    aiOn() && { label: t('AI: mit hoz be ez az ág?'), icon: 'sparkle', disabled: b.current, action: () => aiPanel(t('AI: {0} ↔ {1}', head, b.name), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head, to: b.name, merge_base: true, question: q } })) },
     { label: t('Név másolása'), icon: 'copy', action: () => copy(b.name) },
     '-',
     { label: t('Törlés…'), icon: 'trash', danger: true, disabled: b.current, action: () => deleteBranch(b) },
@@ -1379,7 +1394,7 @@ function remoteBranchMenu(e, b, remote) {
     '-',
     { label: t('Új ág innen…'), icon: 'plus', action: () => newBranchDlg(b.name) },
     { label: t('Összehasonlítás az aktuális ággal'), icon: 'compare', action: () => { r.compare = { from: head || 'HEAD', to: b.name, mergeBase: true, result: null }; setView('compare'); runCompare(r); } },
-    { label: t('AI: mit hoz be ez az ág?'), icon: 'sparkle', action: () => aiPanel(t('AI: {0} ↔ {1}', head, b.name), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head || 'HEAD', to: b.name, merge_base: true, question: q } })) },
+    aiOn() && { label: t('AI: mit hoz be ez az ág?'), icon: 'sparkle', action: () => aiPanel(t('AI: {0} ↔ {1}', head, b.name), (q) => invoke('ai_analyze', { repo: r.path, req: { kind: 'range', from: head || 'HEAD', to: b.name, merge_base: true, question: q } })) },
     { label: t('Név másolása'), icon: 'copy', action: () => copy(b.name) },
     '-',
     { label: t('Törlés a remote-on…'), icon: 'trash', danger: true, action: async () => {
@@ -1436,7 +1451,7 @@ function commitMenu(e, r, c) {
     '-',
     { label: t('Összehasonlítás a working tree-vel'), icon: 'compare', action: () => { r.compare = { from: c.hash, to: '', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
     { label: t('Összehasonlítás HEAD-del'), icon: 'compare', action: () => { r.compare = { from: c.hash, to: 'HEAD', mergeBase: false, result: null }; setView('compare'); runCompare(r); } },
-    { label: t('AI magyarázat'), icon: 'sparkle', action: () => aiCommit(r, c.hash) },
+    aiOn() && { label: t('AI magyarázat'), icon: 'sparkle', action: () => aiCommit(r, c.hash) },
     '-',
     { label: t('Hash másolása'), icon: 'copy', action: () => copy(c.hash) },
     { label: t('Üzenet másolása'), icon: 'copy', action: () => copy(c.subject) },
@@ -2064,6 +2079,7 @@ async function settingsDlg() {
     } finally { aiTestBtn.disabled = false; }
   } } }, t('Teszt'));
   providerSel.addEventListener('change', () => { aiTestOut.textContent = ''; });
+  const aiEnabled = h('input', { type: 'checkbox', checked: s.ai_enabled !== false });
   const updCheck = h('input', { type: 'checkbox', checked: s.update_check !== false });
   const updServer = h('input.inp', { value: s.update_server || '', placeholder: 'https://www.c64va.pro/', spellcheck: 'false' });
   // checks the address, saves it, then looks for a new version there
@@ -2074,6 +2090,15 @@ async function settingsDlg() {
     await saveSettings();
     checkForAppUpdate();
   };
+  const aiBox = h('div.settings-grid.full.ai-box',
+    h('label.field.full', h('span', t('AI szolgáltató')), h('div', { style: { display: 'flex', gap: '6px' } }, providerSel, aiTestBtn), aiTestOut),
+    claudeBox,
+    dsBox,
+    fld('ai_language', t('AI szövegek nyelve'), sel([['hu', t('Magyar')], ['en', 'English']], s.ai_language)),
+    fld('commit_style', t('Commit üzenet stílus'), sel([['conventional', 'Conventional Commits (feat: …)'], ['simple', t('Egyszerű, egy sor')], ['detailed', t('Részletes, felsorolással')]], s.commit_style), null, true));
+  const syncAi = () => aiBox.classList.toggle('off', !aiEnabled.checked);
+  aiEnabled.addEventListener('change', syncAi);
+  syncAi();
   // ── SSH key ──
   const sshInfo = await invoke('ssh_info').catch(() => ({ dir: '', keys: [], new_key: '' }));
   const sshCombo = combo({ value: s.ssh_key_path || '', options: sshInfo.keys, placeholder: t('üres = az ssh saját beállítása (~/.ssh, ssh-agent)') });
@@ -2169,11 +2194,9 @@ async function settingsDlg() {
     fld('zoom', t('Nagyítás'), sel(ZOOMS.map((z) => [String(z), Math.round(z * 100) + '%']), String(ZOOMS.includes(zoomNow()) ? zoomNow() : 1)),
       t('Gyorsan: Ctrl + / Ctrl − / Ctrl 0, vagy Ctrl + egérgörgő.')))],
     ['ai', 'AI', h('div.settings-grid',
-    h('label.field.full', h('span', t('AI szolgáltató')), h('div', { style: { display: 'flex', gap: '6px' } }, providerSel, aiTestBtn), aiTestOut),
-    claudeBox,
-    dsBox,
-    fld('ai_language', t('AI szövegek nyelve'), sel([['hu', t('Magyar')], ['en', 'English']], s.ai_language)),
-    fld('commit_style', t('Commit üzenet stílus'), sel([['conventional', 'Conventional Commits (feat: …)'], ['simple', t('Egyszerű, egy sor')], ['detailed', t('Részletes, felsorolással')]], s.commit_style), null, true))],
+    h('label.chk.full.ai-switch', aiEnabled, h('b', t('AI funkciók bekapcsolása'))),
+    h('div.note.full', t('Kikapcsolva a GitStar semmilyen AI szolgáltatóhoz nem fordul, és az AI gombok, menüpontok sem látszanak.')),
+    aiBox)],
     ['update', t('Frissítés'), h('div.settings-grid',
     h('label.chk.full', updCheck, t('Új verzió keresése induláskor')),
     h('label.field.full', h('span', t('Frissítési szerver')), h('div', { style: { display: 'flex', gap: '6px' } }, updServer,
@@ -2200,6 +2223,7 @@ async function settingsDlg() {
     theme: els.theme.value,
     ui_language: els.ui_language.value,
     font_size: Math.max(10, Math.min(20, +els.font_size.value || 13)),
+    ai_enabled: aiEnabled.checked,
     ai_provider: providerSel.value,
     anthropic_api_key: key.value.trim(),
     claude_cli_path: cliPath.value.trim(),
@@ -2219,6 +2243,7 @@ async function settingsDlg() {
   try { await invoke('update_server_check', { url: updServer.value }); S.settings.update_server = updServer.value.trim(); }
   catch (e) { toast(String(e), 'err'); }
   await saveSettings();
+  if (!aiOn()) document.querySelector('.ai-panel')?.remove();
   if (gitName.value.trim() !== ident.global_name || gitEmail.value.trim() !== ident.global_email) {
     try { await invoke('set_git_identity', { name: gitName.value, email: gitEmail.value }); toast(t('Git név és email mentve.'), 'ok'); }
     catch (e) { toast(t('A git név/email mentése nem sikerült: {0}', String(e)), 'err'); }

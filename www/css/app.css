@@ -101,6 +101,9 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .tab .x:hover { background: var(--bg-3); opacity: 1; }
 .tab[hidden], .tab-more[hidden] { display: none; }
 .tab { flex: none; }
+.tab.dragging { position: relative; z-index: 5; opacity: .85; background: var(--bg-hover); pointer-events: none; }
+.tab.drop-before { box-shadow: inset 2px 0 0 var(--accent); }
+.tab.drop-after { box-shadow: inset -2px 0 0 var(--accent); }
 .tab-more { flex: none; border: 0; border-right: 1px solid var(--border); background: none; color: var(--text-dim); padding: 0 8px; display: flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; }
 .tab-more:hover { color: var(--text); background: var(--bg-hover); }
 .tab-add { flex: none; border: 0; background: none; color: var(--text-dim); padding: 0 10px; display: flex; align-items: center; }
@@ -304,8 +307,18 @@ select.inp { padding: 4px 6px; }
 .commit-split::after { content: ''; position: absolute; left: 50%; top: 2px; width: 36px; height: 3px; margin-left: -18px;
   border-radius: 2px; background: var(--border); }
 .commit-split:hover::after, .commit-split.drag::after { background: #fff; opacity: .8; }
-.commit-box .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.commit-box { container-type: inline-size; }
+/* the button row never wraps: when narrow, the side buttons drop their labels (the tooltip stays) */
+.commit-box .row { display: flex; align-items: center; gap: 8px; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
 .commit-box .row .grow { flex: 1; }
+.commit-box .row > .btn, .commit-box .row > .chk { flex: none; white-space: nowrap; }
+.commit-box .row > .hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 560px) { .commit-box .btn.other .lbl { display: none; } }
+@container (max-width: 440px) { .commit-box .btn.ai .lbl { display: none; } }
+/* the Commit button shrinks last: its label is cut, then only the icon stays */
+.commit-box .row > .btn.commit { flex: 0 1 auto; min-width: 0; }
+.commit-box .btn.commit .lbl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+@container (max-width: 300px) { .commit-box .btn.commit .lbl { display: none; } }
 .commit-box .hint { font-size: 11px; color: var(--text-faint); }
 .commit-box .hint.warn { color: var(--warn); }
 .op-banner { background: rgba(227, 163, 58, 0.15); border-bottom: 1px solid var(--warn); color: var(--text); padding: 6px 10px; display: flex; gap: 8px; align-items: center; font-size: 12px; flex: none; }
@@ -971,3 +984,10 @@ svg.i.rot { transform: rotate(-90deg); }
 .ai-usage-tbl tr.tot td { font-weight: 700; border-top: 2px solid var(--border); }
 .ai-usage-tbl tr.ses td { color: var(--text-dim); }
 .ai-usage-tbl td:first-child { white-space: normal; overflow-wrap: anywhere; }
+
+/* AI on/off switch in Settings */
+.ai-switch { font-size: 13px; color: var(--text); }
+.ai-switch b { font-weight: 600; }
+.ai-box { transition: opacity .15s; }
+.ai-box.off { opacity: .45; pointer-events: none; }
+.no-ai .ai-opt { display: none !important; }

@@ -535,4 +535,7 @@ const EN = {
   'Publikus kulcs másolása': 'Copy public key',
   'GitHub: új SSH kulcs': 'GitHub: new SSH key',
   'Weboldal': 'Website',
+  'AI funkciók bekapcsolása': 'Turn on the AI features',
+  'Az AI funkciók ki vannak kapcsolva (Beállítások → AI).': 'The AI features are switched off (Settings → AI).',
+  'Kikapcsolva a GitStar semmilyen AI szolgáltatóhoz nem fordul, és az AI gombok, menüpontok sem látszanak.': 'When off, GitStar never contacts an AI provider and the AI buttons and menu items are hidden.',
 };

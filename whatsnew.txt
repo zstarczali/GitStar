@@ -1,6 +1,17 @@
 GitStar - What's new
 ====================
 
+1.0.10
+------
+- Repository tabs can be reordered by dragging them with the mouse.
+  The new order is kept for the next start.
+- The commit toolbar stays on one line in a narrow panel: first the
+  "Other branch" and "AI message" buttons, then the Commit button show
+  only their icons (the full text is in the tooltip).
+- The AI features can be switched off in Settings -> AI. When off,
+  GitStar never contacts an AI provider and the AI buttons and menu
+  items are hidden.
+
 1.0.9
 -----
 - When the repository tabs do not fit in the window, the ones that fit
