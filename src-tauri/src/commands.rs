@@ -1300,6 +1300,9 @@ pub struct AiResult {
 pub async fn ai_commit_message(state: State<'_, AppState>, repo: String) -> Result<AiResult, String> {
     let git = state.git();
     let cfg = state.settings.get();
+    if !cfg.ai_enabled {
+        return Err(tr("Az AI funkciók ki vannak kapcsolva (Beállítások → AI).", "The AI features are switched off (Settings → AI)."));
+    }
     let (branch, recent, stat, diff) = blocking(move || {
         let stat = git.run(&repo, &["diff", "--cached", "--stat", "--no-color"])?;
         if stat.trim().is_empty() {
@@ -1345,6 +1348,9 @@ pub struct AnalyzeReq {
 pub async fn ai_analyze(state: State<'_, AppState>, repo: String, req: AnalyzeReq) -> Result<AiResult, String> {
     let git = state.git();
     let cfg = state.settings.get();
+    if !cfg.ai_enabled {
+        return Err(tr("Az AI funkciók ki vannak kapcsolva (Beállítások → AI).", "The AI features are switched off (Settings → AI)."));
+    }
     let kind = req.kind.clone();
     let question = req.question.clone().filter(|q| !q.trim().is_empty());
     let (context, diff) = blocking(move || -> Result<(String, String), String> {

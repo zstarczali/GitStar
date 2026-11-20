@@ -224,7 +224,7 @@ export class DiffView {
       file ? h('span', h('span.stat-a', `+${adds}`), ' ', h('span.stat-d', `−${dels}`)) : null,
       h('span.grow'),
       ...(o.extra || []),
-      o.onAi && (loading || (this.result && !this.result.binary)) ? h('button.btn.sm.ai', { disabled: loading || null, title: t('A diff elemzése AI-jal'), on: { click: () => o.onAi(this.result.text) } }, icon('sparkle'), 'AI') : null,
+      o.onAi && (loading || (this.result && !this.result.binary)) ? h('button.btn.sm.ai.ai-opt', { disabled: loading || null, title: t('A diff elemzése AI-jal'), on: { click: () => o.onAi(this.result.text) } }, icon('sparkle'), 'AI') : null,
       o.onExternal ? h('button.btn.sm', { disabled: loading || null, title: t('Megnyitás a külső összehasonlítóban'), on: { click: () => o.onExternal() } }, icon('compare')) : null,
       (file || loading) && !o.conflict ? [
         h('button.icon-btn', { disabled: !file || null, title: t('Előző változás (Alt+↑)'), on: { click: () => this.jump(-1) } }, icon('up')),

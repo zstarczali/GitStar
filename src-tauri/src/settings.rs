@@ -31,6 +31,8 @@ pub struct Settings {
     pub theme: String,
     /// "auto" | "hu" | "en"
     pub ui_language: String,
+    /// AI features on / off (off: no AI provider is ever called)
+    pub ai_enabled: bool,
     /// "anthropic" | "deepseek" | "claude-cli" (the local Claude Code CLI with its own login)
     pub ai_provider: String,
     /// Path of the `claude` executable; empty = look it up
@@ -81,6 +83,7 @@ impl Default for Settings {
             git_root_path: String::new(),
             theme: "dark".into(),
             ui_language: "auto".into(),
+            ai_enabled: true,
             ai_provider: "anthropic".into(),
             claude_cli_path: String::new(),
             anthropic_api_key: String::new(),
