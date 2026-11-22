@@ -93,6 +93,7 @@ const EN = {
   'Összes commit': 'All commits',
   'Összehasonlítás': 'Compare',
   'Szűrés…': 'Filter…',
+  'Szűrő törlése': 'Clear filter',
   'Nyiss meg egy repository-t': 'Open a repository',
   'URL másolása': 'Copy URL',
   'URL módosítása…': 'Change URL…',
