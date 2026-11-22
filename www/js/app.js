@@ -350,12 +350,24 @@ function renderSidebar() {
     h('div.nav-item' + (r.view === 'history' && !r.logRev && !r.logPath ? '.active' : ''), { on: { click: () => { r.logRev = ''; r.logPath = ''; setView('history', true); } } }, icon('history'), t('Összes commit')),
     h('div.nav-item' + (r.view === 'compare' ? '.active' : ''), { on: { click: () => setView('compare') } }, icon('compare'), t('Összehasonlítás')),
   );
-  const filter = h('input.inp.side-filter', {
+  const filterInp = h('input.inp', {
     placeholder: t('Szűrés…'), value: r.sideFilter,
-    on: { input: debounce((e) => { r.sideFilter = e.target.value; renderSideTree(tree, r); }, 120) },
+    on: {
+      input: (e) => { wrap.classList.toggle('has-text', !!e.target.value); applyFilter(e.target.value); },
+      keydown: (e) => { if (e.key === 'Escape' && filterInp.value) { e.stopPropagation(); clearFilter(); } },
+    },
   });
+  const applyFilter = debounce((v) => { r.sideFilter = v; renderSideTree(tree, r); }, 120);
+  const clearFilter = () => {
+    filterInp.value = '';
+    wrap.classList.remove('has-text');
+    applyFilter('');
+    filterInp.focus();
+  };
+  const wrap = h('div.side-filter' + (r.sideFilter ? '.has-text' : ''), filterInp,
+    h('button.icon-btn.clr', { title: t('Szűrő törlése'), on: { click: clearFilter } }, icon('close')));
   const tree = h('div.side-tree');
-  el.replaceChildren(nav, filter, tree);
+  el.replaceChildren(nav, wrap, tree);
   renderSideTree(tree, r);
 }
 
@@ -1217,8 +1229,8 @@ function renderCompare(el, r, keep) {
   const bar = h('div.compare-bar', h('b', t('Összehasonlítás')), from,
     h('button.icon-btn', { title: t('Csere'), on: { click: () => { [c.from, c.to] = [c.to, c.from]; renderContent(); } } }, '⇄'), to,
     h('label.chk', { title: t('A "Honnan" helyett a két revízió közös ősét (merge-base) használja – azt mutatja, mit hozna be a "Hová" ág') }, mb, t('Merge-base (A...B)')),
-    h('button.btn.primary', { on: { click: () => runCompare(r) } }, icon('compare'), t('Összehasonlítás')),
-    aiOn() ? h('button.btn.ai', { disabled: !c.result || null, on: { click: () => aiCompare(r) } }, icon('sparkle'), t('AI összehasonlítás')) : null);
+    h('div.compare-actions', h('button.btn.primary', { title: t('Összehasonlítás'), on: { click: () => runCompare(r) } }, icon('compare'), h('span.lbl', t('Összehasonlítás'))),
+    aiOn() ? h('button.btn.ai', { title: t('AI összehasonlítás'), disabled: !c.result || null, on: { click: () => aiCompare(r) } }, icon('sparkle'), h('span.lbl', t('AI összehasonlítás'))) : null));
   const leftBody = h('div.details-body');
   const left = h('div.details', h('div.pane-h', t('Változott fájlok'), c.result ? h('span.sub', c.result.files.length) : null), leftBody);
   const vs = h('div.splitter-v');

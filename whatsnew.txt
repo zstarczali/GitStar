@@ -1,6 +1,15 @@
 GitStar - What's new
 ====================
 
+1.0.11
+------
+- The filter box in the sidebar no longer sticks out past the sidebar
+  edge, and an "x" button in it clears the text (Esc works too).
+- The Compare toolbar fits a narrow window: the From and To boxes
+  shrink, then the "AI compare" and "Compare" buttons show only their
+  icons (the full text is in the tooltip), and only after that do the
+  buttons move to a second line.
+
 1.0.10
 ------
 - Repository tabs can be reordered by dragging them with the mouse.
