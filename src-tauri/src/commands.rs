@@ -1076,7 +1076,14 @@ pub fn reveal_in_explorer(path: String) -> Result<(), String> {
     {
         let p = path.replace('/', "\\");
         let mut cmd = Proc::new("explorer");
-        if is_file { cmd.arg(format!("/select,{p}")) } else { cmd.arg(&p) };
+        if is_file {
+            // Only the path may be quoted: Explorer does not understand "/select,C:\a b",
+            // which is what arg() makes of a path with a space.
+            use std::os::windows::process::CommandExt;
+            cmd.raw_arg(format!("/select,\"{p}\""));
+        } else {
+            cmd.arg(&p);
+        }
         spawn(&mut cmd)
     }
     #[cfg(target_os = "macos")]
