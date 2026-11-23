@@ -1,7 +1,7 @@
 GitStar Installation Guide
 ==========================
 
-Version 1.0.11
+Version 1.0.12
 -------------
 Files in the Staged and Unstaged lists can be selected one by one,
 as a range (Shift) or all at once, then staged, unstaged or discarded

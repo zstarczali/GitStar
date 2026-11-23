@@ -1,6 +1,11 @@
 GitStar - What's new
 ====================
 
+1.0.12
+------
+- Windows: showing a file in Explorer works again when its name or
+  path contains a space; the folder opens with the file selected.
+
 1.0.11
 ------
 - The filter box in the sidebar no longer sticks out past the sidebar
