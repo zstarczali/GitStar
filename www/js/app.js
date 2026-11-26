@@ -259,6 +259,19 @@ function renderTabs() {
     h('button.tab-add', { title: t('Repository megnyitása (Ctrl+O)'), on: { click: () => { S.active = -1; renderAll(); } } }, icon('plus')),
   );
   fitTabs(el, S.active, (i) => ({ label: S.repos[i].name, icon: 'folder', action: () => switchRepo(i) }));
+  updatePendingBadge();
+}
+
+/** App icon mark (taskbar overlay / Dock badge): number of open repos with changes or commits to push. */
+// Sent on change, and again every 30 s: the taskbar can lose the overlay (window shown later, Explorer restart).
+let pendingBadge = -1;
+let pendingBadgeAt = 0;
+function updatePendingBadge() {
+  const n = S.repos.filter((r) => r.status && (r.status.staged.length || r.status.unstaged.length || r.status.conflicted.length || r.status.unpushed > 0)).length;
+  if (n === pendingBadge && Date.now() - pendingBadgeAt < 30000) return;
+  pendingBadge = n;
+  pendingBadgeAt = Date.now();
+  invoke('set_pending_badge', { count: n }).catch((e) => console.warn('set_pending_badge:', e));
 }
 
 /** Drag & drop reorder of the tabs; the active repo stays active. */
@@ -405,9 +418,9 @@ function renderTree(node, lvl, leafFn, out, keyPrefix, r) {
   for (const [name, it] of node.leaves) out.push(leafFn(name, it, lvl));
 }
 
-// "merged" badge: the branch tip is already contained in the current branch (HEAD).
-function mergedBadge(b, head) {
-  return b.merged ? h('span.merged', { title: t('Bemergelve ide: {0}', head || 'HEAD') }, 'merged') : null;
+// "merged" badge: the branch tip is already contained in the main branch (refs.merge_base).
+function mergedBadge(b, base) {
+  return b.merged ? h('span.merged', { title: t('Bemergelve ide: {0}', base) }, 'merged') : null;
 }
 
 function renderSideTree(tree, r) {
@@ -420,13 +433,13 @@ function renderSideTree(tree, r) {
   const locals = refs.local.filter((b) => f(b.name));
   const lout = [];
   renderTree(treeify(locals, (b) => b.name), 0, (name, b, lvl) => h('div.ref' + (b.current ? '.current' : '') + (r.view === 'history' && r.selCommit === b.hash ? '.sel' : ''), {
-    style: { '--lvl': lvl }, title: (b.upstream ? `${b.name} → ${b.upstream}` : b.name) + (b.merged ? '\n' + t('Bemergelve ide: {0}', refs.head || 'HEAD') : ''),
+    style: { '--lvl': lvl }, title: (b.upstream ? `${b.name} → ${b.upstream}` : b.name) + (b.merged ? '\n' + t('Bemergelve ide: {0}', refs.merge_base) : ''),
     on: {
       click: () => showRefInHistory(b.hash, b.name),
       dblclick: () => checkout(b.name),
       contextmenu: (e) => localBranchMenu(e, b),
     },
-  }, b.current ? h('span.cur-dot') : icon('branch'), h('span.nm', name), mergedBadge(b, refs.head),
+  }, b.current ? h('span.cur-dot') : icon('branch'), h('span.nm', name), mergedBadge(b, refs.merge_base),
   b.gone ? h('span.gone', 'gone') : (b.ahead || b.behind) ? h('span.ab', b.ahead ? `↑${b.ahead}` : null, b.behind ? `↓${b.behind}` : null) : null), lout, 'L', r);
 
   // remotes
@@ -453,9 +466,9 @@ function renderSideTree(tree, r) {
     } }, icon('cloud'), h('span.nm', rm.name)));
     if (!closed) {
       renderTree(treeify(brs, (b) => b.name.slice(rm.name.length + 1)), 1, (name, b, lvl) => h('div.ref' + (r.view === 'history' && r.selCommit === b.hash ? '.sel' : ''), {
-        style: { '--lvl': lvl }, title: b.name + (b.merged ? '\n' + t('Bemergelve ide: {0}', refs.head || 'HEAD') : ''),
+        style: { '--lvl': lvl }, title: b.name + (b.merged ? '\n' + t('Bemergelve ide: {0}', refs.merge_base) : ''),
         on: { click: () => showRefInHistory(b.hash, b.name), dblclick: () => checkoutRemote(b.name), contextmenu: (e) => remoteBranchMenu(e, b, rm.name) },
-      }, icon('branch'), h('span.nm', name), mergedBadge(b, refs.head)), rout, key, r);
+      }, icon('branch'), h('span.nm', name), mergedBadge(b, refs.merge_base)), rout, key, r);
     }
   }
 
@@ -2423,9 +2436,15 @@ async function boot() {
     }
   });
   // Check every open repository, including tabs that have never been selected.
+  // In the background (unfocused / minimized) only every 30 s: that keeps the taskbar mark current.
   let polling = false;
+  let lastBgPoll = 0;
   setInterval(async () => {
-    if (polling || S.busy || document.hidden || !document.hasFocus() || document.querySelector('.overlay')) return;
+    if (polling || S.busy || document.querySelector('.overlay')) return;
+    if (document.hidden || !document.hasFocus()) {
+      if (Date.now() - lastBgPoll < 30000) return;
+      lastBgPoll = Date.now();
+    }
     polling = true;
     try {
       for (const repo of [...S.repos]) {
