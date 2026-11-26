@@ -1,6 +1,12 @@
 GitStar - What's new
 ====================
 
+1.0.13
+------
+- The sidebar marks branches that are already merged into the current
+  branch with a "merged" tag (local and remote branches). The tooltip
+  shows which branch they are merged into.
+
 1.0.12
 ------
 - Windows: showing a file in Explorer works again when its name or

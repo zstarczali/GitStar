@@ -267,6 +267,8 @@ pub struct Branch {
     pub behind: i64,
     pub gone: bool,
     pub current: bool,
+    /// Reachable from HEAD, i.e. already merged into the current branch.
+    pub merged: bool,
 }
 
 #[derive(Serialize)]
@@ -352,6 +354,7 @@ pub async fn refs(state: State<'_, AppState>, repo: String) -> Result<Refs, Stri
                     behind,
                     gone,
                     current,
+                    merged: false,
                 });
             } else if let Some(n) = full.strip_prefix("refs/remotes/") {
                 if n.ends_with("/HEAD") {
@@ -366,10 +369,20 @@ pub async fn refs(state: State<'_, AppState>, repo: String) -> Result<Refs, Stri
                     behind: 0,
                     gone: false,
                     current: false,
+                    merged: false,
                 });
             } else if let Some(n) = full.strip_prefix("refs/tags/") {
                 let hash = if f[5].is_empty() { f[1] } else { f[5] };
                 r.tags.push(Tag { name: n.into(), hash: hash.into() });
+            }
+        }
+        // Branches whose tip is reachable from HEAD are merged into the current branch.
+        // Fails on an unborn HEAD (empty repo) – then nothing is marked.
+        if let Ok(m) = git.run(&repo, &["for-each-ref", "--merged", "HEAD", "--format=%(refname)", "refs/heads", "refs/remotes"]) {
+            let merged: std::collections::HashSet<&str> = m.lines().collect();
+            let upstream = r.local.iter().find(|b| b.current).map(|b| format!("refs/remotes/{}", b.upstream)).unwrap_or_default();
+            for b in r.local.iter_mut().chain(r.remote.iter_mut()) {
+                b.merged = !b.current && b.full != upstream && merged.contains(b.full.as_str());
             }
         }
         if let Ok(st) = git.run(&repo, &["stash", "list", "--format=%gd%x1f%H%x1f%gs%x1f%ct"]) {

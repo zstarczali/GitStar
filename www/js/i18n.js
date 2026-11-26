@@ -103,6 +103,7 @@ const EN = {
   'Törlés': 'Delete',
   'Ágak': 'Branches',
   'Remote-ok': 'Remotes',
+  'Bemergelve ide: {0}': 'Merged into {0}',
   'Remote hozzáadása': 'Add remote',
   'Tagek': 'Tags',
   'Új tag': 'New tag',
