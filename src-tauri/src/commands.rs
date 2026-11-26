@@ -267,7 +267,7 @@ pub struct Branch {
     pub behind: i64,
     pub gone: bool,
     pub current: bool,
-    /// Reachable from HEAD, i.e. already merged into the current branch.
+    /// Reachable from the main branch (`Refs::merge_base`), i.e. already merged into it.
     pub merged: bool,
 }
 
@@ -299,6 +299,24 @@ pub struct Refs {
     pub stashes: Vec<Stash>,
     pub remotes: Vec<Remote>,
     pub head: String,
+    /// The main branch the `merged` flags are measured against (e.g. "origin/main"); empty if none.
+    pub merge_base: String,
+}
+
+/// Full ref of the repository's main branch: origin/HEAD's target, else origin/main,
+/// origin/master, main, master – the first that exists.
+fn main_branch(git: &Git, repo: &str, r: &Refs) -> Option<String> {
+    if let Ok(s) = git.run(repo, &["symbolic-ref", "-q", "refs/remotes/origin/HEAD"]) {
+        let s = s.trim();
+        if r.remote.iter().any(|b| b.full == s) {
+            return Some(s.to_string());
+        }
+    }
+    let all = || r.remote.iter().chain(r.local.iter());
+    ["refs/remotes/origin/main", "refs/remotes/origin/master", "refs/heads/main", "refs/heads/master"]
+        .into_iter()
+        .find(|c| all().any(|b| b.full == *c))
+        .map(String::from)
 }
 
 fn parse_track(t: &str) -> (i64, i64, bool) {
@@ -332,7 +350,7 @@ pub async fn refs(state: State<'_, AppState>, repo: String) -> Result<Refs, Stri
                 "refs/tags",
             ],
         )?;
-        let mut r = Refs { local: vec![], remote: vec![], tags: vec![], stashes: vec![], remotes: vec![], head: String::new() };
+        let mut r = Refs { local: vec![], remote: vec![], tags: vec![], stashes: vec![], remotes: vec![], head: String::new(), merge_base: String::new() };
         for line in out.lines() {
             let f: Vec<&str> = line.split('\0').collect();
             if f.len() < 6 {
@@ -376,13 +394,22 @@ pub async fn refs(state: State<'_, AppState>, repo: String) -> Result<Refs, Stri
                 r.tags.push(Tag { name: n.into(), hash: hash.into() });
             }
         }
-        // Branches whose tip is reachable from HEAD are merged into the current branch.
-        // Fails on an unborn HEAD (empty repo) – then nothing is marked.
-        if let Ok(m) = git.run(&repo, &["for-each-ref", "--merged", "HEAD", "--format=%(refname)", "refs/heads", "refs/remotes"]) {
-            let merged: std::collections::HashSet<&str> = m.lines().collect();
-            let upstream = r.local.iter().find(|b| b.current).map(|b| format!("refs/remotes/{}", b.upstream)).unwrap_or_default();
-            for b in r.local.iter_mut().chain(r.remote.iter_mut()) {
-                b.merged = !b.current && b.full != upstream && merged.contains(b.full.as_str());
+        // Branches whose tip is reachable from the main branch are merged into it. The remote
+        // main (origin/HEAD) is preferred: PRs are merged there, the local main is often stale.
+        if let Some(base) = main_branch(&git, &repo, &r) {
+            let short = base.trim_start_matches("refs/heads/").trim_start_matches("refs/remotes/").to_string();
+            // "main" for both "main" and "origin/main": the main branch itself is never marked.
+            let main_name = if base.starts_with("refs/remotes/") { short.split_once('/').map_or(short.as_str(), |x| x.1).to_string() } else { short.clone() };
+            if let Ok(m) = git.run(&repo, &["for-each-ref", "--merged", &base, "--format=%(refname)", "refs/heads", "refs/remotes"]) {
+                let merged: std::collections::HashSet<&str> = m.lines().collect();
+                for b in r.local.iter_mut() {
+                    b.merged = b.name != main_name && merged.contains(b.full.as_str());
+                }
+                for b in r.remote.iter_mut() {
+                    let n = b.name.split_once('/').map_or(b.name.as_str(), |x| x.1);
+                    b.merged = n != main_name && merged.contains(b.full.as_str());
+                }
+                r.merge_base = short;
             }
         }
         if let Ok(st) = git.run(&repo, &["stash", "list", "--format=%gd%x1f%H%x1f%gs%x1f%ct"]) {
@@ -1622,6 +1649,7 @@ pub fn finish_splash(app: &tauri::AppHandle) {
         let _ = main.restore_state(window_state_flags());
     }
     let _ = main.set_focus();
+    let _ = apply_pending_badge(&main);
     if let Some(splash) = app.get_webview_window("splashscreen") {
         let _ = splash.close();
     }
@@ -1710,4 +1738,57 @@ pub async fn set_remote_auth(state: State<'_, AppState>, repo: String, remote: S
 #[tauri::command]
 pub fn clone_plan(url: String, parent: String, name: String, mode: String) -> Result<crate::clone_plan::ClonePlan, String> {
     crate::clone_plan::plan(&url, &parent, &name, &mode)
+}
+
+// ───────────────────────────── taskbar badge ─────────────────────────────
+
+/// Marks the app icon when `count` open repositories have something to commit or push.
+/// Windows: a small dot overlay on the taskbar button. macOS: Dock badge with the count.
+/// Linux: launcher badge with the count (Unity launcher API: KDE, Dash to Dock, …).
+#[tauri::command]
+pub fn set_pending_badge(window: tauri::WebviewWindow, count: i64) -> Result<(), String> {
+    PENDING_BADGE.store(count, std::sync::atomic::Ordering::SeqCst);
+    apply_pending_badge(&window)
+}
+
+/// Last count the UI sent. Applied again when the main window is shown: it starts hidden,
+/// and Windows drops an overlay set before the window has a taskbar button.
+static PENDING_BADGE: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+fn apply_pending_badge(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let count = PENDING_BADGE.load(std::sync::atomic::Ordering::SeqCst);
+    #[cfg(target_os = "windows")]
+    {
+        let icon = (count > 0).then(badge_dot);
+        window.set_overlay_icon(icon).map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        window.set_badge_count((count > 0).then_some(count)).map_err(|e| e.to_string())
+    }
+}
+
+/// 16×16 orange dot with a dark rim for the Windows taskbar overlay.
+#[cfg(target_os = "windows")]
+fn badge_dot() -> tauri::image::Image<'static> {
+    const N: usize = 16;
+    let mut px = vec![0u8; N * N * 4];
+    let c = (N as f32 - 1.0) / 2.0;
+    for y in 0..N {
+        for x in 0..N {
+            let d = ((x as f32 - c).powi(2) + (y as f32 - c).powi(2)).sqrt();
+            let (rgb, a): ([u8; 3], f32) = if d <= 5.5 {
+                ([0xff, 0x9f, 0x1c], 1.0)
+            } else if d <= 7.5 {
+                // dark rim, the outer half pixel fades out (antialiasing)
+                ([0x1e, 0x21, 0x28], ((7.5 - d) * 2.0).min(1.0))
+            } else {
+                ([0, 0, 0], 0.0)
+            };
+            let i = (y * N + x) * 4;
+            px[i..i + 3].copy_from_slice(&rgb);
+            px[i + 3] = (a * 255.0) as u8;
+        }
+    }
+    tauri::image::Image::new_owned(px, N as u32, N as u32)
 }

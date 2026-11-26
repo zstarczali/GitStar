@@ -94,6 +94,7 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::git_version,
+            commands::set_pending_badge,
             commands::set_ui_language,
             commands::open_repo,
             commands::init_repo,
