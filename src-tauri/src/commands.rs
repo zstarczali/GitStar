@@ -409,6 +409,19 @@ pub async fn refs(state: State<'_, AppState>, repo: String) -> Result<Refs, Stri
                     let n = b.name.split_once('/').map_or(b.name.as_str(), |x| x.1);
                     b.merged = n != main_name && merged.contains(b.full.as_str());
                 }
+                // A tip on the main branch's own (first-parent) line has no work of its own –
+                // e.g. a branch just created from main – so it is not "merged". A branch merged
+                // by a merge commit (PR) has its tip as a second parent, off that line.
+                if r.local.iter().chain(r.remote.iter()).any(|b| b.merged) {
+                    if let Ok(fp) = git.run(&repo, &["rev-list", "--first-parent", "-n", "20000", &base]) {
+                        let line: std::collections::HashSet<&str> = fp.lines().collect();
+                        for b in r.local.iter_mut().chain(r.remote.iter_mut()) {
+                            if b.merged && line.contains(b.hash.as_str()) {
+                                b.merged = false;
+                            }
+                        }
+                    }
+                }
                 r.merge_base = short;
             }
         }

@@ -1,6 +1,17 @@
 GitStar - What's new
 ====================
 
+1.0.14
+------
+- The app icon shows when an open repository has changes to commit or
+  commits to push: a dot on the taskbar button on Windows, the number
+  of such repositories on the Dock (macOS) and on the launcher icon
+  (Linux, where the desktop supports it). It is kept up to date in the
+  background too.
+- The "merged" tag now means merged into the main branch (origin/main),
+  whichever branch is checked out. A branch without commits of its own,
+  for example one just created from main, is no longer marked.
+
 1.0.13
 ------
 - The sidebar marks branches that are already merged into the current
