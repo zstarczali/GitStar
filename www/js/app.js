@@ -405,6 +405,11 @@ function renderTree(node, lvl, leafFn, out, keyPrefix, r) {
   for (const [name, it] of node.leaves) out.push(leafFn(name, it, lvl));
 }
 
+// "merged" badge: the branch tip is already contained in the current branch (HEAD).
+function mergedBadge(b, head) {
+  return b.merged ? h('span.merged', { title: t('Bemergelve ide: {0}', head || 'HEAD') }, 'merged') : null;
+}
+
 function renderSideTree(tree, r) {
   const refs = r.refs;
   if (!refs) { tree.replaceChildren(); return; }
@@ -415,13 +420,13 @@ function renderSideTree(tree, r) {
   const locals = refs.local.filter((b) => f(b.name));
   const lout = [];
   renderTree(treeify(locals, (b) => b.name), 0, (name, b, lvl) => h('div.ref' + (b.current ? '.current' : '') + (r.view === 'history' && r.selCommit === b.hash ? '.sel' : ''), {
-    style: { '--lvl': lvl }, title: b.upstream ? `${b.name} → ${b.upstream}` : b.name,
+    style: { '--lvl': lvl }, title: (b.upstream ? `${b.name} → ${b.upstream}` : b.name) + (b.merged ? '\n' + t('Bemergelve ide: {0}', refs.head || 'HEAD') : ''),
     on: {
       click: () => showRefInHistory(b.hash, b.name),
       dblclick: () => checkout(b.name),
       contextmenu: (e) => localBranchMenu(e, b),
     },
-  }, b.current ? h('span.cur-dot') : icon('branch'), h('span.nm', name),
+  }, b.current ? h('span.cur-dot') : icon('branch'), h('span.nm', name), mergedBadge(b, refs.head),
   b.gone ? h('span.gone', 'gone') : (b.ahead || b.behind) ? h('span.ab', b.ahead ? `↑${b.ahead}` : null, b.behind ? `↓${b.behind}` : null) : null), lout, 'L', r);
 
   // remotes
@@ -448,9 +453,9 @@ function renderSideTree(tree, r) {
     } }, icon('cloud'), h('span.nm', rm.name)));
     if (!closed) {
       renderTree(treeify(brs, (b) => b.name.slice(rm.name.length + 1)), 1, (name, b, lvl) => h('div.ref' + (r.view === 'history' && r.selCommit === b.hash ? '.sel' : ''), {
-        style: { '--lvl': lvl }, title: b.name,
+        style: { '--lvl': lvl }, title: b.name + (b.merged ? '\n' + t('Bemergelve ide: {0}', refs.head || 'HEAD') : ''),
         on: { click: () => showRefInHistory(b.hash, b.name), dblclick: () => checkoutRemote(b.name), contextmenu: (e) => remoteBranchMenu(e, b, rm.name) },
-      }, icon('branch'), h('span.nm', name)), rout, key, r);
+      }, icon('branch'), h('span.nm', name), mergedBadge(b, refs.head)), rout, key, r);
     }
   }
 

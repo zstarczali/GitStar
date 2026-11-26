@@ -204,6 +204,7 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .ref .cur-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
 .ref .ab { font-size: 11px; color: var(--text-dim); display: flex; gap: 4px; }
 .ref .gone { color: var(--danger); font-size: 11px; }
+.ref .merged { color: var(--ok); font-size: 10px; border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; line-height: 13px; opacity: .8; flex: none; }
 .ref svg.i { width: 14px; height: 14px; color: var(--text-dim); }
 .folder { color: var(--text-dim); }
 
